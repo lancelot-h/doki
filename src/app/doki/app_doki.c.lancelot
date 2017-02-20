@@ -1,0 +1,91 @@
+/**
+ ****************************************************************************************
+ *
+ * @file app_doki.c
+ *
+ * @brief Application DOKI API
+ *
+ * Copyright (C) Quintic 2012-2013
+ *
+ * $Rev: 1.0 $
+ *
+ ****************************************************************************************
+ */
+
+/**
+ ****************************************************************************************
+ * @addtogroup APP_DOKI_API
+ * @{
+ ****************************************************************************************
+ */
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+
+#include "app_env.h"
+
+#if BLE_DOKI_DEVICE
+#include "app_doki.h"
+
+/*
+ * FUNCTION DECLARATIONS
+ ****************************************************************************************
+ */
+
+/*
+ ****************************************************************************************
+ * @brief Create the proximity reporter service database - at initiation    *//**
+ *
+ * @param[in] features Indicate if optional features is supported or not, possible values are:
+ * DOKI_FEATURES_NOT_SUP
+ * DOKI_FEATURES_SUP
+ *
+ * @response DOKI_CREATE_DB_CFM
+ * @description
+ * This function shall be used to after reception of create database. This should be done
+ * during the initialization phase of the device. The status parameter indicates if the
+ * services have been successfully added (ATT_ERR_NO_ERROR) or not (ATT_INSUFF_RESOURCE).
+ ****************************************************************************************
+ */
+void app_doki_create_db(uint8_t features)
+{
+    struct doki_create_db_req * msg = KE_MSG_ALLOC(DOKI_CREATE_DB_REQ, TASK_DOKI, TASK_APP, doki_create_db_req);
+
+    msg->features = features;
+    ke_msg_send(msg);
+}
+
+/*
+ ****************************************************************************************
+ * @brief Start the proximity reporter role - at connection     *//**
+ *
+ * @param[in] conhdl Connection handle for which the profile Reporter role is enabled
+ * @param[in] sec_lvl Security level required for protection of attributes.
+ * Service Hide and Disable are not permitted. Possible values are:
+ * - PERM_RIGHT_ENABLE
+ * - PERM_RIGHT_UNAUTH
+ * - PERM_RIGHT_AUTH
+ * @param[in] lls_alert_lvl Saved value for LLS alert level, from previous profile use.
+ * 0 if the connection is a configuration connection.
+ * @param[in] txp_lvl TX Power level, range from -100 to 20 
+ *
+ * @response None
+ * @description
+ * This function is used for enabling the Reporter role of the Proximity profile.
+ * After calling this function, the services are unhidden from the peer discove.
+ ****************************************************************************************
+ */
+void app_doki_enable_req(uint16_t conhdl, uint8_t sec_lvl)
+{
+    struct doki_enable_req * msg = KE_MSG_ALLOC(DOKI_ENABLE_REQ, TASK_DOKI, TASK_APP, doki_enable_req);
+
+    msg->conhdl = conhdl;
+    msg->sec_lvl = sec_lvl;
+    ke_msg_send(msg);
+}
+
+#endif
+
+/// @} APP_DOKI_API

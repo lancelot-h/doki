@@ -1,0 +1,120 @@
+/**
+ ****************************************************************************************
+ *
+ * @file prf_utils.h
+ *
+ * @brief  Header file - Profile Utilities.
+ *
+ * Copyright (C) RivieraWaves 2009-2013
+ *
+ * $Rev$
+ *
+ ****************************************************************************************
+ */
+
+
+#ifndef _PRF_UTILS_H_
+#define _PRF_UTILS_H_
+
+/**
+ ****************************************************************************************
+ * @addtogroup PRF_UTILS
+ * @ingroup PROFILE
+ *
+ * @brief Definitions of shared profiles functions that can be used by several profiles
+ *
+ * @{
+ ****************************************************************************************
+ */
+
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+
+#if (BLE_ATTS)
+#include "ke_msg.h"
+#include "prf_types.h"
+#include "gatt_task.h"
+#endif /* (BLE_ATTS) */
+
+/*
+ * MACROS
+ ****************************************************************************************
+ */
+
+
+/*
+ * FUNCTION DECLARATIONS
+ ****************************************************************************************
+ */
+
+#if (BLE_ATTS)
+
+/**
+ ****************************************************************************************
+ * @brief The function is used in a profile server role task to inform the application that
+ * an error has occurred in the msg_id message handler.
+ *
+ * @param p_env                 Profile server role task environment
+ * @param status                Error status
+ * @param ind_msg_id            [PRF]_ERROR_IND message id
+ * @param msg_id                Message ID of the message for which an error has been raised
+ ****************************************************************************************
+ */
+void prf_server_error_ind_send(prf_env_struct *p_env, uint8_t status,
+                               ke_msg_id_t ind_msg_id, ke_msg_id_t msg_id);
+
+#endif //(BLE_ATTS)
+
+#if (BLE_ATTS)
+/**
+ ****************************************************************************************
+ * @brief Pack date time value
+ *
+ * @param[out] packed_date packed date time
+ * @param[in] date_time structure date time
+ *
+ * @return size of packed value
+ ****************************************************************************************
+ */
+uint8_t prf_pack_date_time(uint8_t *packed_date, const struct prf_date_time* date_time);
+
+/**
+ ****************************************************************************************
+ * @brief Unpack date time value
+ *
+ * @param[in] packed_date packed date time
+ * @param[out] date_time structure date time
+ *
+ * @return size of packed value
+ ****************************************************************************************
+ */
+uint8_t prf_unpack_date_time(uint8_t *packed_date, struct prf_date_time* date_time);
+
+/**
+ ****************************************************************************************
+ * @brief Perform Profile initialization
+ ****************************************************************************************
+ */
+void prf_init(void);
+
+
+/**
+ ****************************************************************************************
+ * @brief dispatch disconnection complete event to profiles.
+ *
+ * @param[in] status        disconnection complete event status
+ * @param[in] reason        detach reason
+ * @param[in] conhdl        connection handle
+ *
+ ****************************************************************************************
+ */
+void prf_dispatch_disconnect(uint8_t status, uint8_t reason, uint16_t conhdl, uint8_t idx);
+
+#endif /* (BLE_ATTS) */
+
+/// @} prf_utils
+
+#endif /* _PRF_UTILS_H_ */

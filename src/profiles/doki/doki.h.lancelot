@@ -1,0 +1,180 @@
+/**
+ ****************************************************************************************
+ *
+ * @file doki.h
+ *
+ * @brief Header file - DOKI.
+ *
+ * Copyright (C) RivieraWaves 2009-2012
+ *
+ * $Rev: $
+ *
+ ****************************************************************************************
+ */
+
+#ifndef DOKI_H_
+#define DOKI_H_
+
+/**
+ ****************************************************************************************
+ * @addtogroup DOKI Proximity Reporter
+ * @ingroup PROX
+ * @brief Proximity Profile Reporter.
+ *
+ * The DOKI is responsible for providing proximity reporter functionalities to
+ * upper layer module or application. The device using this profile takes the role
+ * of a proximity reporter role.
+ *
+ * Proximity Reporter (PR): A PR (e.g. a watch, key fob, etc) is the term used by
+ * this profile to describe a personal device that a user carries with them and that
+ * has low power requirement (i.e. it is operating with a button cell), allowing another
+ * device to monitor their connection. The device may have a simple user alert
+ * functionality, for example a blinking LED or audible output.
+ * @{
+ ****************************************************************************************
+ */
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+
+#if (BLE_DOKI_DEVICE)
+
+#include "ke_task.h"
+#include "atts.h"
+#include "prf_types.h"
+
+/*
+ * ENUMERATIONS
+ ****************************************************************************************
+ */
+//Lancelot 20150829
+
+#define BLE_BUFFER_SIZE 20
+
+enum
+{
+    DOKI_IDX_SVC,
+
+    DOKI_IDX_CONFIG_CHAR,
+    DOKI_IDX_CONFIG_VAL,
+
+    DOKI_IDX_DATA0_CHAR,
+    DOKI_IDX_DATA0_VAL,
+
+    DOKI_IDX_DATA1_CHAR,
+    DOKI_IDX_DATA1_VAL,
+
+	DOKI_IDX_FOTA_CHAR,		//firmware over -the air
+	DOKI_IDX_FOTA_VAL,
+
+    DOKI_IDX_NB,
+};
+
+enum DOKI_CONFIG_CMD_ENUM
+{
+    DOKI_CONFIG_CMD_START,
+    DOKI_CONFIG_CMD_DEBUG = 0x03,
+    DOKI_CONFIG_CMD_FOTA_START = 0x04,
+    DOKI_CONFIG_CMD_FOTA_END = 0x05,
+    DOKI_CONFIG_CMD_GET_VERSION = 0x06,
+    DOKI_CONFIG_CMD_GET_DATA = 0x07,
+    DOKI_CONFIG_CMD_GET_BOOTLOADER = 0x08,
+    DOKI_CONFIG_CMD_SET_TIME = 0x09,
+    DOKI_CONFIG_CMD_REAL_TIME_IN = 0x0A,   //real time mode
+    DOKI_CONFIG_CMD_OUT_RTM = 0x0B,
+    DOKI_CONFIG_CMD_ACC_CALI = 0x0C,
+    DOKI_CONFIG_CMD_CHECK_CONNECT = 0x0D,
+    DOKI_CONFIG_CMD_ACC_IS_CALI = 0x0E
+};
+
+enum DOKI_CONFIG_CMD_STATE_ENUM
+{
+	DOKI_CONFIG_CMD_STATE_READY = 0,
+	DOKI_CONFIG_CMD_STATE_SUCESS = 1,
+	DOKI_CONFIG_CMD_STATE_FAILED = 2
+};
+
+enum DOKI_TRANSFER_STATE_ENMU
+{
+	DOKI_TRANSFER_STATE_NONE=0,
+	DOKI_TRANSFER_STATE_DATA,
+	DOKI_TRANSFER_STATE_FOTA_START,
+	DOKI_TRANSFER_STATE_FOTA_END,
+	DOKI_TRANSFER_STATE_FOTA_CANCEL,
+	DOKI_TRANSFER_STATE_BOOTLOADR,
+	DOKI_TRANSFER_STATE_RTM,
+	DOKI_TRANSFER_STATE_DEBUG
+};
+
+/*
+ * STRUCTURES
+ ****************************************************************************************
+ */
+
+/// doki reporter environment variable
+struct doki_env_tag
+{
+    /// Connection Information
+    struct prf_con_info con_info;
+
+    /// Doki ble Start Handle
+    uint16_t doki_ble_shdl;
+};
+
+/*
+ * PROXIMITY PROFILE ATTRIBUTES DECLARATION
+ ****************************************************************************************
+ */
+
+extern const struct atts_desc doki_ble_att_db[DOKI_IDX_NB];
+
+/*
+ *  PROXIMITY PROFILE ATTRIBUTES VALUES DECLARATION
+ ****************************************************************************************
+ */
+
+/// Doki Service
+extern const atts_svc_desc_t doki_ble_svc;
+/// Doki Service -Config Characteristic
+extern const struct atts_char_desc doki_ble_config_char;
+/// Doki Service -Data Characteristic
+extern const struct atts_char_desc doki_ble_data_char;
+/// Doki Service -Debug Characteristic
+extern const struct atts_char_desc doki_ble_debug_char;
+/// Doki Service -fota Characteristic
+extern const struct atts_char_desc doki_ble_fota_char;
+
+/*
+ * GLOBAL VARIABLE DECLARATIONS
+ ****************************************************************************************
+ */
+
+extern struct doki_env_tag doki_env;
+
+/*
+ * FUNCTION DECLARATIONS
+ ****************************************************************************************
+ */
+
+/**
+ ****************************************************************************************
+ * @brief Initialization of the DOKI module.
+ * This function performs all the initializations of the DOKI module.
+ ****************************************************************************************
+ */
+void doki_prf_init(void);
+
+/**
+ ****************************************************************************************
+ * @brief Disable role.
+ ****************************************************************************************
+ */
+void doki_disable(void);
+
+#endif
+
+/// @} DOKI
+
+#endif // DOKI_H_

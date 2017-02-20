@@ -1,0 +1,208 @@
+/**
+ ****************************************************************************************
+ *
+ * @file app_env.h
+ *
+ * @brief Application Header File
+ *
+ * Copyright(C) 2015 NXP Semiconductors N.V.
+ * All rights reserved.
+ *
+ * $Rev: 1.0 $
+ *
+ ****************************************************************************************
+ */
+
+#ifndef _APP_ENV_H_
+#define _APP_ENV_H_
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+#include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
+#include "co_bt.h"
+#include "co_error.h"
+
+#include "app_config.h"
+#include "app_sys.h"
+#include "app_gap.h"
+#include "app_smp.h"
+#include "app_gatt.h"
+#include "app_task.h"
+#include "app_util.h"
+#include "app_printf.h"
+
+#if !QN_WORK_MODE
+#include "nvds.h"
+#endif
+
+#if BLE_DOKI_DEVICE
+#include "app_doki.h"
+#endif
+
+#include "usr_design.h"
+
+/*
+ * TYPE DEFINITIONS
+ ****************************************************************************************
+ */
+#define APP_IDX_MAX                                 0x01
+
+#define APP_MAX_BONDED_DEVICE_NUMBER                1
+
+// The TAG value after 100 reserved for application
+// Store bonded number
+#define APP_NVDS_DB_COUNT_TAG                       (50)
+// Store bonded information
+#define APP_NVDS_DB_START_TAG                       (APP_NVDS_DB_COUNT_TAG + 1)
+#define APP_NVDS_DB_END_TAG                         (APP_NVDS_DB_COUNT_TAG + APP_MAX_BONDED_DEVICE_NUMBER)
+
+// Aligned to 4 bytes
+#define BONDED_DB_SIZE  ((sizeof(struct app_bonded_info) * APP_MAX_BONDED_DEVICE_NUMBER - 1) / sizeof(uint32_t) + 1)
+
+// Invalid index for profile client
+#define APP_INVALID_INDEX                           (0xFF)
+
+/// Service Record Structure
+struct app_svc_record
+{
+    /// attribute handle
+    uint16_t attr_hdl;
+};
+
+/// Pair Information Structure
+struct app_pair_info
+{
+    struct smp_key irk;
+#if (QN_CSRK_SUPPORT)
+    struct smp_key csrk;
+#endif
+    struct smp_key ltk;
+    ///EDIV (=0 if not sending an LTK)
+    uint16_t ediv;
+    ///Random number (=0 if not sending an LTK)
+    struct rand_nb rand_nb;
+};
+
+/// Stored Pair Information Structure
+struct app_bonded_info
+{
+    uint8_t sec_prop;
+    uint8_t peer_distribute_keys;
+    uint8_t addr_type; 
+    /// status of the device record
+    struct bd_addr peer_addr;
+    struct app_pair_info pair_info;
+};
+
+/// Connected Device Record Structure
+struct app_dev_record
+{
+    /// Temporary store bonded information
+    struct app_bonded_info bonded_info;
+
+    /// discoveried service record list
+#if QN_SVC_DISC_USED
+    uint8_t nb_svc;
+    struct app_svc_record svc_rec[QN_GATT_MAX_HDL_NB];
+#endif
+
+    uint16_t conhdl;
+    bool free;
+};
+
+/// Application Environment Structure
+struct app_env_tag
+{
+#if (BLE_PERIPHERAL || BLE_BROADCASTER)
+    // Service setup Flag
+    uint16_t srv_flag;
+    // Advertising data
+    uint8_t adv_data[ADV_DATA_LEN];
+    // Scan Response data
+    uint8_t scanrsp_data[SCAN_RSP_DATA_LEN];
+#endif
+
+#if (QN_SECURITY_ON)
+    // Security Level
+    uint8_t sec_lvl_set;
+    // IO capabilities
+    uint8_t iocap_set;
+    // index of TK request indication
+    uint8_t tk_idx;
+    // TK type
+    uint8_t tk_type;
+
+    // TK
+    uint8_t tk[7];
+    // IRK
+    uint8_t irk[KEY_LEN];
+#if (QN_CSRK_SUPPORT)
+    // CSRK
+    uint8_t csrk[KEY_LEN];
+#endif
+    // LTK
+    uint8_t ltk[KEY_LEN];
+    // RAND
+    uint8_t rand[RAND_NB_LEN];
+    // EDIV
+    uint16_t ediv;
+    // Bonded flag
+    uint8_t bond_flag;
+    // Bonded device Count
+    uint8_t bonded_count;
+    // Pointer to Bonded Database
+    struct app_bonded_info *bonded_info;
+    // Bonded Database
+    uint32_t bonded_db[BONDED_DB_SIZE]; 
+#endif
+
+    // Local role
+    uint8_t role;
+    // Record requested IRK position
+    uint8_t irk_pos;
+    // Connected Device Count
+    uint8_t cn_count;
+    // Connected Device Record
+    struct app_dev_record dev_rec[BLE_CONNECTION_MAX];
+
+    struct app_doki_env_tag doki_ev;
+
+};
+
+/*
+ * GLOBAL VARIABLE DECLARATIONS
+ ****************************************************************************************
+ */
+
+/// Application Environment
+extern struct app_env_tag app_env;
+
+/*
+ * FUNCTION DECLARATIONS
+ ****************************************************************************************
+ */
+
+/*
+ ****************************************************************************************
+ * @brief Initialize the application task environment.
+ *
+ ****************************************************************************************
+ */
+void app_init(void);
+
+
+/*
+ ****************************************************************************************
+ * @brief Callback function of MENU.
+ *
+ ****************************************************************************************
+ */
+#define app_menu_cb(m, p)
+
+/// @} APP
+
+#endif // APP_H_

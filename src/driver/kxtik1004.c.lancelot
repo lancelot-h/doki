@@ -1,0 +1,571 @@
+/**************************************************************************//**
+
+	@file	   bma250.c
+
+	@brief	  Functions for accessing accelerometer BMA250 on CC2541 keyfob.
+
+******************************************************************************/
+
+
+/******************************************************************************
+ * INCLUDES
+ */
+#include "i2c.h"
+#include "usr_design.h"
+#include "lib.h"
+#include "Sleep.h"
+#include "doki_data.h"
+
+#include "kxtik1004.h"
+#include "doki_debug.h"
+
+#include "timer.h"
+#include "rtc.h"
+
+/******************************************************************************
+ * DEFINES
+ */
+#define I2C_CLK_400K		(I2C_SCL_RATIO(400000))
+
+/******************************************************************************
+ * LOCAL VARIABLES
+ */
+static uint8_t acc_data_count = 0;
+static uint8_t acc_cali_flag = 0;
+static uint8_t acc_cali_count = 0;
+
+uint8_t acc_mode = ACC_MODE_UNINIT;
+uint32_t step_count = 0, pre_step_count = 0;
+
+/******************************************************************************
+ * FUNCTIONS
+ */
+void kxtik1004_read_byte(uint8_t addr, uint8_t *pBuf)
+{
+	i2c_read(addr, pBuf);
+}
+void kxtik1004_write_byte(uint8_t addr, uint8_t data)
+{
+	i2c_write(addr, data);
+}
+void kxtik1004_read_nbyte(uint8_t addr, uint8_t *pBuf, uint8_t num)
+{
+	//Lancelot restart or end&start
+	i2c_read_multiple(addr, pBuf, num);
+}
+
+#if 0
+static int8_t g_last_data[3]={0, 0, 0};
+uint8_t acc_data_compare(int8_t* new_data)
+{
+	//QPRINTF("@%d %d %d|%d %d %d\r\n", g_last_data[0], g_last_data[1], g_last_data[2], *new_data, *(new_data+1), *(new_data+2));
+	if(abs(g_last_data[0]-*new_data)+abs(g_last_data[1]-*(new_data+1))+abs(g_last_data[2]-*(new_data+2)) > 10)
+	{
+		return ACC_DATA_CHANGED;
+	}
+	else
+	{
+		return ACC_DATA_NO_CHANGED;
+	}
+}
+#endif
+
+void acc_read_buff(void)
+{
+	uint8_t reg_data = 0;
+	//static uint8_t same_data_count = 0;
+
+	// Read all data from accelerometer
+	kxtik1004_read_byte(KXTIK1004_ADDR_BUF_STATUS1, &reg_data);
+	//Ignore the incomplete data
+	acc_data_count = reg_data/3*3;
+	// Read all data from accelerometer
+	kxtik1004_read_nbyte(KXTIK1004_ADDR_BUF_READ, (uint8_t*)databuf, acc_data_count);
+	//Clear buff
+	kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CLEAR, 0x00);
+	//Clear int
+	kxtik1004_read_byte(KXTIK1004_ADDR_INT_REL, &reg_data);
+
+#if 0
+	if(acc_data_compare(databuf) | acc_data_compare(databuf+((acc_data_count/3>>1)-1)*3) | acc_data_compare(databuf+acc_data_count-3))
+	{
+		memcpy(g_last_data, databuf+acc_data_count-3, sizeof(g_last_data));
+		QPRINTF("g_data %d %d %d\r\n", g_last_data[0], g_last_data[1], g_last_data[2]);
+		//cal data lancelot
+	}
+	else
+	{
+		QPRINTF("same_data_count = %d\r\n", same_data_count);
+		if(++same_data_count > DOKI_DATA_COUNT)
+		{
+			same_data_count = 0;
+			acc_set_mode(DOKI_MODE_SLEEP);
+			sleep_timer_set(DOKI_DEEP_SLEEP_TIME);
+			sleep_set_pm(PM_SLEEP);
+		}
+	}
+#endif
+}
+
+void acc_preprocessing(void)
+{
+	uint8_t i = 0;
+	int32_t tmp[3];
+
+	// 1g=32
+	while(i < acc_data_count)
+	{
+		tmp[0] = databuf[i] - doki_acc_cali.base[0];
+		tmp[1] = databuf[i+1] - doki_acc_cali.base[1];
+		tmp[2] = databuf[i+2] - doki_acc_cali.base[2];
+
+		//g
+		databuf[i] = (tmp[0]*doki_acc_cali.g[0] + tmp[1]*doki_acc_cali.g[1] + tmp[2]*doki_acc_cali.g[2])/100;
+		//f
+		databuf[i+1] = (tmp[0]*doki_acc_cali.f[0] + tmp[1]*doki_acc_cali.f[1] + tmp[2]*doki_acc_cali.f[2])/100;
+		//h
+		databuf[i+2] = 0;
+
+		i += 3;
+	}
+}
+
+void acc_updata_pedometer(void)
+{
+	step_count++;
+}
+
+void doki_communication(void)
+{
+	//QPRINTF("doki_communication doki_comu_status=%d \r\n",doki_comu_status);
+	switch(acc_mode)
+	{
+		case ACC_MODE_IDLE:
+			break;
+		case ACC_MODE_REAL_TIME:
+			if(doki_update_flag & DOKI_UPDATE_REALTIME)
+			{
+				doki_update_flag &= ~DOKI_UPDATE_REALTIME;
+				memcpy(data_buf, &step_count, sizeof(int32_t));
+				doki_notify_send(4, data_buf, DOKI_IDX_DATA1_VAL);
+			}
+			break;
+		default:
+			break;
+	}
+
+}
+
+static void acc_calibration_step1(void)
+{
+	uint8_t num = 0, count = 0;
+	int16_t sum[3] = {0};
+	uint32_t all_sum = 0;
+
+	if(acc_cali_count++ > 10)
+	{
+		data_buf[0] = DOKI_CONFIG_CMD_ACC_CALI;
+		data_buf[1] = DOKI_CONFIG_CMD_STATE_FAILED;
+		data_buf[2] = 1;	//stap 1
+
+		doki_notify_send(3, data_buf, DOKI_IDX_CONFIG_VAL);
+		return;
+	}
+
+	gpio_disable_interrupt(ACC_INT_PIN);
+
+	acc_read_buff();
+
+	sum[0] += databuf[num++];
+	sum[1] += databuf[num++];
+	sum[2] += databuf[num++];
+	
+	while(num < acc_data_count)
+	{
+		count = num/3;
+
+		DLOG("%s %d [%d,%d,%d] [%d,%d,%d]\r\n", __func__, count, sum[0], sum[1], sum[2], databuf[num], databuf[num+1], databuf[num+2]);
+
+		if(abs(sum[0]-databuf[num]*count) < count<<2)
+		{
+			sum[0] += databuf[num];
+		}
+		else
+		{
+			goto CALI_RETRY;
+		}
+		num++;
+
+		if(abs(sum[1]-databuf[num]*count) < count<<2)
+		{
+			sum[1] += databuf[num];
+		}
+		else
+		{
+			goto CALI_RETRY;
+		}
+		num++;
+
+		if(abs(sum[2]-databuf[num]*count) < count<<2)
+		{
+			sum[2] += databuf[num];
+		}
+		else
+		{
+			goto CALI_RETRY;
+		}
+		num++;
+	}
+	count += 1;
+	sum[0] = sum[0]/count;
+	sum[1] = sum[1]/count;
+	sum[2] = sum[2]/count;
+	all_sum = sum[0]*sum[0] + sum[1]*sum[1] + sum[2]*sum[2];
+
+	// 1g=64
+	if(all_sum < 4356 && all_sum > 3844)
+	{
+		doki_acc_cali.base[0] = sum[0]/2;
+		doki_acc_cali.base[1] = sum[1]/2;
+		doki_acc_cali.base[2] = sum[2]/2;
+
+		doki_acc_cali.g[0] = sum[0]*100/64;
+		doki_acc_cali.g[1] = sum[1]*100/64;
+		doki_acc_cali.g[2] = sum[2]*100/64;
+	}
+	DLOG("%s count=%d, [x,y,z][0]=[%d,%d,%d] %d [%d,%d,%d]\r\n", __func__, count, doki_acc_cali.base[0], doki_acc_cali.base[1], doki_acc_cali.base[2], all_sum, doki_acc_cali.g[0], doki_acc_cali.g[1], doki_acc_cali.g[2]);
+	
+	data_buf[0] = DOKI_CONFIG_CMD_ACC_CALI;
+	data_buf[1] = DOKI_CONFIG_CMD_STATE_SUCESS;
+	data_buf[2] = 1;	//stap 1
+
+	doki_notify_send(3, data_buf, DOKI_IDX_CONFIG_VAL);
+
+	acc_cali_count = 0;
+	acc_cali_flag = 2;
+
+CALI_RETRY:
+	gpio_enable_interrupt(ACC_INT_PIN);
+}
+
+static void acc_calibration_step2(void)
+{
+	gpio_disable_interrupt(ACC_INT_PIN);
+
+	if(acc_cali_count++ > 200)	// 2min
+	{
+		data_buf[0] = DOKI_CONFIG_CMD_ACC_CALI;
+		data_buf[1] = DOKI_CONFIG_CMD_STATE_FAILED;
+		data_buf[2] = 2;	//stap 1
+
+		doki_notify_send(3, data_buf, DOKI_IDX_CONFIG_VAL);
+		return;
+	}
+
+	acc_read_buff();
+
+	//get acc forward axis para
+	//do sth here to cali acc
+	//DLOG("%s\r\n", __func__);
+
+	data_buf[0] = DOKI_CONFIG_CMD_ACC_CALI;
+	data_buf[1] = DOKI_CONFIG_CMD_STATE_SUCESS;
+	data_buf[2] = 2;	//step 2
+	data_buf[3] = 0;	//no used, Lancelot modify with App
+	doki_save_acc_cali();
+
+	doki_notify_send(4,data_buf,DOKI_IDX_CONFIG_VAL);
+
+	acc_cali_flag = 0;
+	doki_tag |= DOKI_TAG_CAL_GS;
+	if(doki_tag & DOKI_TAG_START_TIME)
+	{
+		acc_set_mode(ACC_MODE_IDLE);
+	}
+	else
+	{
+		acc_set_mode(ACC_MODE_UNINIT);
+	}
+	
+//CALI_RETRY:
+	gpio_enable_interrupt(ACC_INT_PIN);
+}
+
+void acc_event_int_handler(void)
+{
+	//static uint8_t i = 0; 
+
+	ke_evt_clear(1UL << DOKI_KE_EVT_ACC_INT);
+
+	ke_timer_set(APP_SYS_RCO_CAL_TIMER, TASK_APP, 0);
+
+	//rtc_time_get();
+	//DLOG("acc_int %d %02d:%02d:%02d\r\n", i++, rtc_env.time.hour, rtc_env.time.minute, rtc_env.time.second);
+	i2c_init(KXTIK1004_I2C_ADDRESS, I2C_CLK_400K);
+
+#if 0	//Directional Tap, no used, it takes too more power
+	kxtik1004_read_byte(0x16, &reg_data);
+	if(reg_data & 0x08)
+	{
+		//Clear int
+		kxtik1004_read_byte(KXTIK1004_ADDR_INT_REL, &reg_data);
+		// If BLE is in the sleep mode, wakeup it.
+		if(ble_ext_wakeup_allow())
+		{
+			sw_wakeup_ble_hw();
+		}
+		doki_adv_start(DOKI_BLE_S(30));
+		return;
+	}
+	if(reg_data & 0x04)
+	{
+		//Clear int
+		kxtik1004_read_byte(KXTIK1004_ADDR_INT_REL, &reg_data);
+		return;
+	}
+#endif
+
+	switch(acc_mode)
+	{
+		case ACC_MODE_IDLE:
+		case ACC_MODE_REAL_TIME:
+			acc_read_buff();
+			acc_preprocessing();
+			acc_updata_pedometer();
+
+			doki_communication();
+			/*
+			doki_save_step_count();
+			*/
+			break;
+		case ACC_MODE_CALI:
+			//doki_ble_timer_enable(DOKI_BLE_CONNECT_TIMEOUT);
+			if(acc_cali_flag == 1)
+			{
+				acc_calibration_step1();
+			}
+			else if(acc_cali_flag == 2)
+			{
+				acc_calibration_step2();
+			}
+			break;
+		default:
+			break;
+	}
+}
+#if 0
+void acc_sleep_check_handler(void)
+{
+	ke_evt_clear(1UL << EVENT_ACC_SLEEP_CHECK);
+
+	i2c_init(KXTIK1004_I2C_ADDRESS, I2C_CLK_400K);
+
+	kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x88);		   //power on and int enable, set range
+
+	kxtik1004_read_nbyte(KXTIK1004_ADDR_DATAX0, (uint8_t*)databuf, 6);		//Lancelot restart or end&start
+
+	databuf[0] = databuf[1];
+	databuf[1] = databuf[3];
+	databuf[2] = databuf[5];
+	if(acc_data_compare(databuf))
+	{
+		//QPRINTF("c===%d %d %d|%d %d %d\r\n", g_last_data[0], g_last_data[1], g_last_data[2], databuf[0], databuf[1], databuf[2]);
+		memcpy(g_last_data, databuf, sizeof(g_last_data));
+		acc_set_mode(DOKI_MODE_NORMAL);
+		//sleep_set_pm(PM_DEEP_SLEEP);
+	}
+	else
+	{
+		QPRINTF("no changed\r\n");
+		acc_set_mode(DOKI_MODE_SLEEP);
+		//sleep_timer_set(DOKI_DEEP_SLEEP_TIME);
+		//sleep_set_pm(PM_SLEEP);
+	}
+}
+#endif
+
+/**************************************************************************//**
+* @fn	   accInit(void)
+*
+* @brief	Initialize I2C interface and KXTIK1004 accelerometer.
+*
+* @return   void
+******************************************************************************/
+void acc_init(void)
+{
+	uint8_t reg_data = 0;
+
+	i2c_init(KXTIK1004_I2C_ADDRESS, I2C_CLK_400K);
+
+	//Check id
+	kxtik1004_read_byte(KXTIK1004_ADDR_DEVICE_ID, &reg_data);
+	DINFO("%s sensor_id = 0x%02X\r\n", __func__, reg_data);
+	ASSERT_ERR(reg_data == KXTIK1004_DEVICE_ID);
+
+	//power off
+	kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x00);
+	kxtik1004_write_byte(KXTIK1004_ADDR_CTRL2, 0x00);
+	kxtik1004_write_byte(KXTIK1004_ADDR_CTRL3, 0x08);			//Directional Tap bandwidth 200Hz	0x0C 400Hz, no used
+
+	//Set interrupt
+	kxtik1004_write_byte(KXTIK1004_ADDR_INC1, 0x20);			//Enable interrupt 1 and set active low
+	kxtik1004_write_byte(KXTIK1004_ADDR_INC2, 0x00);
+	kxtik1004_write_byte(KXTIK1004_ADDR_INC3, 0x3C);			//Directional Tap XY no Z, no used
+
+	//Set bandwidth
+	kxtik1004_write_byte(KXTIK1004_ADDR_DATA_CTRL, 0x01);		//25Hz ==0x01 ,50HZ==0x02
+
+	//Set buff
+	//Set watermark, triger interrupt per 80(0x50) sample
+	kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CTRL1, 0x50);
+	//Set buffer in stream mode with 8bit, and full interrupt, but inactive sample buffer
+	kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CTRL2, 0x01);
+
+	//Clear buff
+	kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CLEAR, 0x00);
+	//Clear int
+	kxtik1004_read_byte(KXTIK1004_ADDR_INT_REL, &reg_data);
+
+	//init int
+	//gpio_pull_set(ACC_INT_PIN, GPIO_PULL_UP);
+	wakeup_by_gpio(ACC_INT_PIN, GPIO_WKUP_BY_LOW);
+
+	if(doki_tag & DOKI_TAG_CAL_GS && doki_tag & DOKI_TAG_START_TIME)
+	{
+		acc_set_mode(ACC_MODE_IDLE);
+	}
+
+#if 0
+	if(KE_EVENT_OK != ke_evt_callback_set(EVENT_ACC_SLEEP_CHECK, acc_sleep_check_handler))
+	{
+		ASSERT_ERR(0);
+	}
+#endif
+} // accInit
+
+#if 0
+uint8_t doki_gsensor_changed(void)
+{
+	i2c_init(KXTIK1004_I2C_ADDRESS, I2C_CLK_400K);
+
+	kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x88);		   //power on and int enable, set range
+
+	kxtik1004_read_nbyte(KXTIK1004_ADDR_DATAX0, (uint8_t*)databuf, 6);		//Lancelot restart or end&start
+
+	QPRINTF("g_data %d %d %d\r\n", databuf[1], databuf[3], databuf[5]);
+	if(g_last_data[0]==0 && g_last_data[1]==0 && g_last_data[2]==0)
+	{
+		g_last_data[0] = databuf[1];
+		g_last_data[1] = databuf[3];
+		g_last_data[2] = databuf[5];
+	}
+	if(abs(g_last_data[0]-databuf[1])+abs(g_last_data[1]-databuf[3])+abs(g_last_data[2]-databuf[5]) > 10)
+	{
+		g_last_data[0] = databuf[1];
+		g_last_data[1] = databuf[3];
+		g_last_data[2] = databuf[5];
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
+}
+#endif
+
+void acc_set_mode(uint8_t mode)
+{
+	uint8_t reg_data = 0;
+
+	//DLOG("%s %d\r\n", __func__, acc_mode);
+
+	acc_mode = mode;
+	
+	gpio_disable_interrupt(ACC_INT_PIN);
+	ke_evt_clear(1UL << DOKI_KE_EVT_ACC_INT);
+
+	//i2c_init(KXTIK1004_I2C_ADDRESS, I2C_CLK_400K);
+	switch(acc_mode)
+	{
+		case ACC_MODE_UNINIT:
+			//Set range, but no power on
+			kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x08);
+			sleep_set_pm(PM_DEEP_SLEEP);
+			return;
+		case ACC_MODE_IDLE:
+			//power off and set range & data valid
+			kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x00);
+
+			//Set buff
+			//Set watermark, triger interrupt per 80(0x50) sample
+			kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CTRL1, 0x50);	//>=5	Lancelot
+			//Set buffer in stream mode with 8bit, and full interrupt, then active sample buffer
+			kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CTRL2, 0x81);
+
+			//Clear buff
+			kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CLEAR, 0x00);
+			//Clear int
+			kxtik1004_read_byte(KXTIK1004_ADDR_INT_REL, &reg_data);
+
+			//power on and int enable
+			kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x88);	//0x84
+
+			sleep_set_pm(PM_SLEEP);
+
+			break;
+		case ACC_MODE_CALI:
+			//power off and set range & data valid
+			kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x00);
+
+			//Set buff
+			//Set watermark, triger interrupt per 15 sample
+			kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CTRL1, 15);	//>=5	Lancelot
+			//Set buffer in stream mode with 8bit, and full interrupt, then active sample buffer
+			kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CTRL2, 0x81);
+
+			//Clear buff
+			kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CLEAR, 0x00);
+			//Clear int
+			kxtik1004_read_byte(KXTIK1004_ADDR_INT_REL, &reg_data);
+
+			//power on and int enable
+			kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x80);
+			break;
+		case ACC_MODE_REAL_TIME:
+			//power off and set range & data valid
+			kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x00);
+
+			//Set buff
+			//Set watermark, triger interrupt per 80(0x50) sample
+			kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CTRL1, 15);	//>=5	Lancelot
+			//Set buffer in stream mode with 8bit, and full interrupt, then active sample buffer
+			kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CTRL2, 0x81);
+
+			//Clear buff
+			kxtik1004_write_byte(KXTIK1004_ADDR_BUF_CLEAR, 0x00);
+			//Clear int
+			kxtik1004_read_byte(KXTIK1004_ADDR_INT_REL, &reg_data);
+
+			//power on and int enable
+			kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x88);	//0x84
+
+			doki_update_flag |= DOKI_UPDATE_REALTIME;	//ready to update
+			break;
+		case ACC_MODE_SLEEP:
+			//power off
+			//kxtik1004_write_byte(KXTIK1004_ADDR_CTRL1, 0x00);
+			break;
+		default:
+			break;
+	}
+	gpio_enable_interrupt(ACC_INT_PIN);
+}
+
+void acc_calibration_start(void)
+{
+	acc_cali_flag = 1;
+	acc_cali_count = 0;
+
+	acc_set_mode(ACC_MODE_CALI);
+}
+

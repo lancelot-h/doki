@@ -1,0 +1,98 @@
+/**
+ ****************************************************************************************
+ *
+ * @file app_doki_task.c
+ *
+ * @brief Application DOKI implementation
+ *
+ * Copyright (C) Quintic 2012-2013
+ *
+ * $Rev: 1.0 $
+ *
+ ****************************************************************************************
+ */
+ 
+/**
+ ****************************************************************************************
+ * @addtogroup APP_DOKI_TASK
+ * @{
+ ****************************************************************************************
+ */
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+ 
+#include "app_env.h"
+
+#if BLE_DOKI_DEVICE
+#include "app_doki.h"
+#include "usr_design.h"
+#include "doki_debug.h"
+
+/// @cond
+/*
+ * GLOBAL VARIABLE DEFINITIONS
+ ****************************************************************************************
+ */
+/// @endcond
+
+/*
+ ****************************************************************************************
+ * @brief Handles the create database confirmation from the DOKI.      *//**
+ *
+ * @param[in] msgid     DOKI_CREATE_DB_CFM
+ * @param[in] param     Pointer to the struct doki_create_db_cfm
+ * @param[in] dest_id   TASK_APP
+ * @param[in] src_id    TASK_DOKI
+ *
+ * @return If the message was consumed or not.
+ * @description
+ * This handler will be called after reception of create database. The status parameter 
+ * indicates if the services have been successfully added (ATT_ERR_NO_ERROR) or not 
+ * (ATT_INSUFF_RESOURCE).
+ ****************************************************************************************
+ */
+int app_doki_create_db_cfm_handler(ke_msg_id_t const msgid,
+                                struct doki_create_db_cfm *param,
+                                ke_task_id_t const dest_id,
+                                ke_task_id_t const src_id)
+{
+    if (param->status == ATT_ERR_NO_ERROR)
+    {
+        app_clear_local_service_flag(BLE_DOKI_DEVICE_BIT);
+    }
+    return (KE_MSG_CONSUMED);
+}
+
+/*
+ ****************************************************************************************
+ * @brief Handles the disable service indication from the DOKI.     *//**
+ *
+ * @param[in] msgid     DOKI_DISABLE_IND
+ * @param[in] param     Pointer to the struct doki_disable_ind
+ * @param[in] dest_id   TASK_APP
+ * @param[in] src_id    TASK_DOKI
+ *
+ * @return If the message was consumed or not.
+ * @description
+ * This handler is used to inform the Application of the correct disable or the Reporter role,
+ * and to give the application the LLS alert level to save until the next activation of the 
+ * Reporter role.
+ ****************************************************************************************
+ */
+int app_doki_disable_ind_handler(ke_msg_id_t const msgid,
+                                  struct doki_disable_ind *param,
+                                  ke_task_id_t const dest_id,
+                                  ke_task_id_t const src_id)
+{
+    app_env.doki_ev.conhdl = 0xFFFF;
+    app_env.doki_ev.enabled = false;
+	DLOG("%s disconnect\r\n", __func__);
+    return (KE_MSG_CONSUMED);
+}
+
+#endif
+
+/// @} APP_DOKI_TASK

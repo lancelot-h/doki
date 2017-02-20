@@ -1,0 +1,14 @@
+
+
+void doki_gs_init(void)
+{
+	acc_init();
+}
+
+void doki_init(void)
+{
+	doki_data_init();
+	doki_gs_init();
+	doki_app_init();
+}
+

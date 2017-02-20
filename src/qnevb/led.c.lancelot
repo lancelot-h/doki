@@ -1,0 +1,177 @@
+/**
+ ****************************************************************************************
+ *
+ * @file led.c
+ *
+ * @brief led driver for qn evb.
+ *
+ * Copyright(C) 2015 NXP Semiconductors N.V.
+ * All rights reserved.
+ *
+ * $Rev: 1.0 $
+ *
+ ****************************************************************************************
+ */
+
+/**
+ ****************************************************************************************
+ * @addtogroup  LED
+ * @{
+ ****************************************************************************************
+ */
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+#include "gpio.h"
+#include "led.h"
+#include "timer.h"
+
+#include "doki_debug.h"
+
+// 50Hz
+#define LED_BREATH_CYCLE	100	// 5k/100 = 50
+#define LED_BREATH_SPEED	1
+#define LED_BREATH_MIN		(LED_BREATH_SPEED+1)
+#define LED_BREATH_MAX		60
+
+// 10Hz
+#define LED_FLASH_CYCLE	500		// 5k/500 = 10
+#define LED_FLASH_ON	10*LED_FLASH_CYCLE/100
+
+static LED_MODE led_mode = LED_OFF;
+static uint32_t led_count = 0;
+
+static uint8_t led_breath_dir = 0;
+static int32_t led_breath_step = LED_BREATH_MIN;
+
+/*
+ * FUNCTION DEFINITIONS
+ ****************************************************************************************
+ */
+
+void led_timer_process(void)
+{
+	//QPRINTF("Lancelot %s\r\n", __func__);
+
+	switch(led_mode)
+	{
+		case LED_FLASH:
+			if(led_count++ > LED_FLASH_CYCLE)
+			{
+				//QPRINTF("LED_FLASH %d\r\n", led_count);
+				led_count = 0;
+				gpio_write_pin(LED_PIN, (enum gpio_level)LED_ON);
+			}
+			else
+			{
+				if(led_count > LED_FLASH_ON)
+				{
+					//QPRINTF("LED_FLASH 2 %d\r\n", led_count);
+					gpio_write_pin(LED_PIN, (enum gpio_level)LED_OFF);
+				}
+			}
+			break;
+		case LED_BREATH:
+			if(led_count++ > LED_BREATH_CYCLE)
+			{
+				//QPRINTF("LED_BREATH %d %d %d\r\n", led_breath_dir, led_breath_step, led_count);
+				gpio_write_pin(LED_PIN, (enum gpio_level)LED_ON);
+				led_count = 0;
+				if(led_breath_dir == 0)
+				{
+					led_breath_step += LED_BREATH_SPEED;
+					if(led_breath_step > LED_BREATH_MAX)
+					{
+						led_breath_dir = 1;
+					}
+				}
+				else
+				{
+					led_breath_step -= LED_BREATH_SPEED;
+					if(led_breath_step < LED_BREATH_MIN)
+					{
+						led_breath_dir = 0;
+					}
+				}
+			}
+			if(led_count > led_breath_step && (LED_MODE)gpio_read_pin(LED_PIN) == LED_ON)
+			{
+				gpio_write_pin(LED_PIN, (enum gpio_level)LED_OFF);
+			}
+			break;
+		case LED_ON:
+		case LED_OFF:
+		default:
+			break;
+	}
+}
+
+static void doki_led_timer_enable(void)
+{
+	syscon_SetCRSC(QN_SYSCON, SYSCON_MASK_GATING_TIMER2);
+
+	//timer_enable(QN_TIMER2, MASK_ENABLE);
+	timer_timer_SetCRWithMask(QN_TIMER2, TIMER_MASK_TEN, MASK_ENABLE);
+	dev_prevent_sleep(PM_MASK_TIMER2_ACTIVE_BIT);
+}
+
+static void doki_led_timer_disable(void)
+{
+	//timer_enable(QN_TIMER2, MASK_DISABLE);
+	timer_timer_SetCRWithMask(QN_TIMER2, TIMER_MASK_TEN, MASK_DISABLE);
+	dev_allow_sleep(PM_MASK_TIMER2_ACTIVE_BIT);
+
+	syscon_SetCRSS(QN_SYSCON, SYSCON_MASK_GATING_TIMER2);
+}
+
+/**
+ ****************************************************************************************
+ * @brief   Set led mode
+ * @param[in]	led mode
+ * @description
+ *  This function switchs on/off led individually.
+ ****************************************************************************************
+ */
+void led_set(LED_MODE mode)
+{
+	if(led_mode != mode)
+	{
+		//DLOG("Lancelot %s %d\r\n", __func__, mode);
+
+		led_mode = mode;
+		switch(mode)
+		{
+			case LED_ON:
+			case LED_OFF:
+				doki_led_timer_disable();
+				gpio_write_pin(LED_PIN, (enum gpio_level)mode);
+				break;
+			case LED_FLASH:
+			case LED_BREATH:
+				led_count = 0;
+				led_breath_step = LED_BREATH_MIN;
+				gpio_write_pin(LED_PIN, (enum gpio_level)LED_ON);
+				doki_led_timer_enable();
+				break;
+			default:
+				return;
+		}
+	}
+}
+
+/**
+ ****************************************************************************************
+ * @brief   LED initilization
+ ****************************************************************************************
+ */
+void led_init()
+{
+	// gpio is output to control led
+	gpio_set_direction_field(LED_PIN, (uint32_t)GPIO_OUTPUT);
+	gpio_write_pin(LED_PIN, (enum gpio_level)LED_OFF);
+}
+
+/// @} LED
+

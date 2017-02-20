@@ -1,0 +1,338 @@
+/**
+ ****************************************************************************************
+ *
+ * @file app_config.h
+ *
+ * @brief Application Configuration File
+ *
+ * Copyright(C) 2015 NXP Semiconductors N.V.
+ * All rights reserved.
+ *
+ * $Rev: 1.0 $
+ *
+ ****************************************************************************************
+ */
+
+#ifndef _APP_CONFIG_H_
+#define _APP_CONFIG_H_
+
+/**
+ ****************************************************************************************
+ * @addtogroup APP_CONFIG Application Configuration Defines
+ * @ingroup APP_CONFIG
+ * @brief Application Configuration Defines
+ *
+ * Application Configuration Defines are used to enable or disable differenct features of
+ * the application.
+ * @{
+ ****************************************************************************************
+ */
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+#include "usr_config.h"
+
+/// Application Version Number
+#define QN_APP_VER                  "1.3.9"
+
+/// Software Version
+#if (defined(CFG_SW_RELEASE))
+    #define QN_SW_RELEASE
+#endif
+
+/// QN9020 Chip Version Number
+#if (defined(CFG_9020_B2))
+    #define QN_9020_B2
+#elif (defined(CFG_9020_B4))
+    #define QN_9020_B4
+#else
+    #error "No correct chip version is defined!"
+#endif
+
+/// Evaluation Board Indication
+#if (defined(CFG_9021_MINIDK))
+    #define QN_9021_MINIDK
+#elif (defined(CFG_9022_MINIDK_V1_1))
+    #define QN_9022_MINIDK_V1_1
+#endif
+
+/// External flash
+#if (defined(CFG_EXT_FLASH))
+    #define QN_EXT_FLASH
+#endif
+
+/// No external flash
+#if (defined(CFG_NO_FLASH))
+    #define QN_NO_FLASH
+#endif
+
+/// Work Mode
+#define WORK_MODE_SOC               0
+#define WORK_MODE_NP                1
+#define WORK_MODE_HCI               2
+
+#if (defined(CFG_WM_SOC))
+    #define QN_WORK_MODE            WORK_MODE_SOC
+#endif
+
+/// Application friendly name setting
+#if (defined(CFG_LOCAL_NAME))
+    #define QN_LOCAL_NAME           CFG_LOCAL_NAME
+#else
+    #define QN_LOCAL_NAME           "NXP BLE"
+#endif
+
+/// DC-DC enable
+#if (defined(CFG_DC_DC))
+    #define QN_DC_DC_ENABLE         true
+#else
+    #define QN_DC_DC_ENABLE         false
+    #define CFG_HIGH_PERFORMANCE
+#endif
+
+/// 32K RCO
+#if (defined(CFG_32K_RCO))
+    #define QN_32K_RCO              1
+#else
+    #define QN_32K_RCO              0
+#endif
+
+/// Power mode
+#if (defined(CFG_HIGH_PERFORMANCE))
+    #define QN_POWER_MODE           HIGH_PERFORMANCE
+#else
+    #define QN_POWER_MODE           NORMAL_MODE
+#endif
+
+/// NVDS write
+#if (defined(CFG_NVDS_WRITE))
+    #define QN_NVDS_WRITE           1
+    #define NVDS_TMP_BUF_SIZE       0x1000
+#else
+    #define QN_NVDS_WRITE           0
+#endif
+
+/// Memory retention
+#if (defined(CFG_MEM_RETENTION))
+    #define QN_MEM_RETENTION        CFG_MEM_RETENTION
+    #define QN_MEM_UNRETENTION      (~(CFG_MEM_RETENTION) & 0xfe)
+#else
+    #define QN_MEM_RETENTION        (MEM_BLOCK1 | MEM_BLOCK2 | MEM_BLOCK3 | MEM_BLOCK4 | MEM_BLOCK5 | MEM_BLOCK6 | MEM_BLOCK7)
+    #define QN_MEM_UNRETENTION      0
+#endif
+
+/// Deep sleep
+#if (defined(CFG_DEEP_SLEEP))
+    #define QN_DEEP_SLEEP           PM_DEEP_SLEEP
+    #define QN_DEEP_SLEEP_EN        1
+#else
+    #define QN_DEEP_SLEEP           PM_SLEEP
+    #define QN_DEEP_SLEEP_EN        0
+#endif
+
+/// BLE sleep
+#if (defined(CFG_BLE_SLEEP))
+    #define QN_BLE_SLEEP            true
+#else
+    #define QN_BLE_SLEEP            false
+#endif
+
+/// BLE MAX sleep duration
+#if (defined(CFG_BLE_MAX_SLEEP_DUR))
+    #define QN_BLE_MAX_SLEEP_DUR    CFG_BLE_MAX_SLEEP_DUR
+#else
+    #define QN_BLE_MAX_SLEEP_DUR    0x320 // 625us * 0x320 = 0.5s
+#endif
+
+/// Wakeup external mcu
+#if ((defined(CFG_EACI_GPIO_WAKEUP_EX_MCU)) && (defined(CFG_HCI_UART)))
+    #define QN_EACI_GPIO_WAKEUP_EX_MCU        CFG_EACI_GPIO_WAKEUP_EX_MCU
+#endif
+
+/// White List support
+#if (defined(CFG_WL_SUPPORT))
+#define QN_WL_SUPPORT               1
+#endif
+
+/// Link infomation option
+#if (defined(CFG_LINK_INFO))
+#define QN_LINK_INFO                1
+#endif
+
+/// Security On or Off
+#if (defined(CFG_SECURITY_ON))
+#define QN_SECURITY_ON              1
+#endif
+
+/// CSRK support
+#if (defined(CFG_CSRK_SUPPORT) && defined(CFG_SECURITY_ON))
+#define QN_CSRK_SUPPORT             1
+#endif
+
+/// Debug print option
+#if (defined(CFG_DBG_PRINT))
+    // QPRINTF enable
+    #define QN_DBG_PRINT            1
+
+    #if (defined(CFG_STD_PRINTF))
+        #define QN_STD_PRINTF       1
+    #else
+        #define QN_STD_PRINTF       0
+    #endif
+
+    #if (defined(CFG_DBG_TRACE_MORE))
+        // More Trace level
+        #define QN_DBG_TRACE_MORE   1
+    #else
+        // Less Trace level
+        #define QN_DBG_TRACE_MORE   0
+    #endif
+#else
+    // QPRINTF disable
+    #define QN_DBG_PRINT            0
+    // Less Trace level
+    #define QN_DBG_TRACE_MORE       0
+#endif
+
+/// Debug information
+#if (defined(CFG_DBG_INFO))
+    #define QN_DBG_INFO             1
+#else
+    #define QN_DBG_INFO             0
+#endif
+
+/// UART definitions
+#define QN_DEBUG_UART               CFG_DEBUG_UART
+#define QN_HCI_UART_RD              (hci_api)uart_read
+#define QN_HCI_UART_WR              (hci_api)uart_write
+#define QN_HCI_SPI_RD               (hci_api)spi_read
+#define QN_HCI_SPI_WR               (hci_api)spi_write
+
+/// Application role definitions
+#define BLE_BROADCASTER             (defined(CFG_BROADCASTER))
+#define BLE_OBSERVER                (defined(CFG_OBSERVER))
+#define BLE_PERIPHERAL              (defined(CFG_PERIPHERAL) || defined(CFG_ALLROLES))
+#define BLE_CENTRAL                 (defined(CFG_CENTRAL) || defined(CFG_ALLROLES))
+
+#if (!BLE_BROADCASTER) && (!BLE_OBSERVER) && (!BLE_PERIPHERAL) && (!BLE_CENTRAL)
+    #error "No application role defined"
+#endif /* #if (!BLE_BROADCASTER) && (!BLE_OBSERVER) && (!BLE_PERIPHERAL) && (!BLE_CENTRAL) */
+
+/// Maximum number of simultaneous connections
+#define BLE_CONNECTION_MAX      1
+
+/// Address type of local device
+#if (defined(CFG_ADDR_PUBLIC))
+    #define QN_ADDR_TYPE            ADDR_PUBLIC
+#elif (defined(CFG_ADDR_RAND))
+    #define QN_ADDR_TYPE            ADDR_RAND
+#else
+    #define QN_ADDR_TYPE            ADDR_PUBLIC
+#endif
+
+/// Privacy enable
+#if (defined(CFG_PRIV_EN))
+    #define QN_PRIV_EN              1
+#else
+    #define QN_PRIV_EN              0
+#endif
+
+/// Set a true random seed to the ROM code
+#if (defined(CFG_FW_SRAND))
+    #define QN_FW_SRAND             1
+#else
+    #if (defined(CFG_ADDR_RAND))
+        #define QN_FW_SRAND             1
+    #else
+        #define QN_FW_SRAND             0
+    #endif
+#endif
+
+#if (defined(CFG_SVC_DISC))
+    // Gatt Discoveried Service Used
+    #define QN_SVC_DISC_USED        1
+    // Gatt Discoveried Service Record number
+    #define QN_GATT_MAX_HDL_NB      (3 * GATT_MAX_HDL_LIST)
+#endif
+
+/// SMP Security level and IO capbility definitions
+#if (QN_SECURITY_ON)
+    #define QN_SEC_MODE_LEVEL       GAP_SEC1_NOAUTH_PAIR_ENC
+    #define QN_IO_CAP_ABILITY       SMP_IO_CAP_NO_INPUT_NO_OUTPUT
+#else
+    #define QN_SEC_MODE_LEVEL       GAP_SEC1_NOAUTH_PAIR_ENC
+    #define QN_IO_CAP_ABILITY       SMP_IO_CAP_NO_INPUT_NO_OUTPUT
+#endif
+
+/// TK
+#define QN_SMP_TK   "111111"
+
+/// IRK
+#define QN_SMP_IRK  "\x01\x5F\xE8\xB4\x56\x07\x8E\x22\x18\xA6\x7C\xE1\xE4\xBA\x99\xA5"
+
+/// CSRK
+#define QN_SMP_CSRK "\x02\x45\x30\xDA\x3A\xFC\x81\x48\xF1\x0D\xAD\x2E\x91\x9D\x57\x7B"
+
+/// LTK
+#define QN_SMP_LTK  "\xBF\x01\xFB\x9D\x4E\xF3\xBC\x36\xD8\x74\xF5\x39\x41\x38\x68\x4C"
+
+/// RAND
+#define QN_SMP_RAND "\x00\x11\x22\x33\x44\x55\x66\x77"
+
+/// EDIV
+#define QN_SMP_EDIV 0x4321
+
+/// ATT DB,Testing and Qualification related flags
+#if (BLE_CENTRAL || BLE_PERIPHERAL)
+
+#define BLE_OTA_SERVER      0
+
+    #if defined(CFG_PRF_DOKI)
+        #define BLE_DOKI_DEVICE     1
+        #define TASK_DOKI          CFG_TASK_DOKI
+        #define DOKI_DB_SIZE        180
+    #else
+        #define BLE_DOKI_DEVICE   0
+        #define PXPR_DB_SIZE        0
+    #endif // defined(CFG_PRF_PXPR)
+
+    //Force ATT parts depending on profile roles or compile options
+    /// Attribute Server
+    #if BLE_DOKI_DEVICE || defined(CFG_ATTS)
+        #define BLE_ATTS            1
+    #else
+        #define BLE_ATTS            0
+    #endif
+
+    //Force ATT parts depending on profile roles or compile options
+    /// Attribute Server
+    #if defined(CFG_ATTS)
+        #define BLE_ATTS            1
+    #else
+        #define BLE_ATTS            0
+    #endif // defined(CFG_ATTS)
+
+#endif //BLE_CENTRAL || BLE_PERIPHERAL
+
+/// Size of the heap
+#if (BLE_CENTRAL || BLE_PERIPHERAL)
+    /// some heap must be reserved for attribute database
+    #if (BLE_ATTS)
+        #define GAP_DB_SIZE         (232)
+        #define GATT_DB_SIZE        (60)
+        #define BLE_DB_SIZE         (GAP_DB_SIZE+GATT_DB_SIZE+DOKI_DB_SIZE)
+    #else
+        #define BLE_DB_SIZE         (0)
+    #endif /* (BLE_ATTS) */
+
+        #define BLE_HEAP_SIZE           (BLE_DB_SIZE + 512 + 256 * BLE_CONNECTION_MAX)
+#else
+    #define BLE_HEAP_SIZE           (800)
+#endif /* #if (BLE_CENTRAL || BLE_PERIPHERAL) */
+
+/// @} APP_CONFIG
+
+#endif // _APP_CONFIG_H_
+

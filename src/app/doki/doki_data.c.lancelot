@@ -1,0 +1,242 @@
+
+#include "serialflash.h"
+#include "nvds.h"
+#include "rtc.h"
+
+#include "kxtik1004.h"
+
+#include "doki_debug.h"
+#include "doki_data.h"
+#include "doki_task.h"
+#include "gpio.h"
+
+int8_t databuf[DOKI_DATA_BUFF_SIZE];
+doki_acc_cali_struct doki_acc_cali;
+
+uint8_t doki_tag = 0;
+void doki_save_acc_cali(void)
+{
+	uint8_t res = 0;
+
+	res = nvds_put(NVDS_TAG_DOKI_ACC_CALI, NVDS_LEN_DOKI_ACC_CALI, (uint8_t *)&doki_acc_cali);
+	if(res == NVDS_OK)
+	{
+		DLOG("%s success[%d %d %d] [%d %d %d] [%d %d %d]\r\n", __func__, doki_acc_cali.base[0], doki_acc_cali.base[1], doki_acc_cali.base[2],
+																			doki_acc_cali.g[0], doki_acc_cali.g[1], doki_acc_cali.g[2],
+																			doki_acc_cali.f[0], doki_acc_cali.f[1], doki_acc_cali.f[2]);
+	}
+	else
+	{
+		DERR("%s fail(%d)!\r\n", __func__, res);
+	}
+}
+
+void doki_get_data_len(uint8_t *buf)
+{
+	//buf[0] = (uint8_t)(len>>8);
+	//buf[1] = (uint8_t) len;
+
+	buf[0] = 0;
+	buf[1] = 0;
+}
+
+uint16_t read_sector, read_block, read_offset;
+void doki_trans_init(void)
+{
+	doki_update_flag |= DOKI_UPDATE_DATA;
+
+	read_sector = 0;
+	read_block = 0;
+	read_offset = 0;
+
+	gpio_disable_interrupt(ACC_INT_PIN);
+}
+
+uint8_t doki_get_data(uint8_t *buf)
+{
+	return 0;
+	#if 0
+	uint8_t len=0;
+
+	if(doki_tag | DOKI_TAG_START_TIME)
+	{
+		return 0;
+	}
+	
+	if(doki_fota_block_index==0&&doki_fota_current_num<DOKI_DATA_RESERVE_LEN*2)
+	{
+		doki_fota_current_num=DOKI_DATA_RESERVE_LEN*2;
+	}
+	if((doki_fota_block_index==doki_data_block_index) &&(doki_fota_current_num==doki_data_current_num*2))
+	{
+		return 0;
+	}
+	power_on_flash();
+
+	if(doki_fota_block_index<doki_data_block_index)
+	{
+		if(DOKI_DATA_BUFF_SIZE-doki_fota_current_num>20)
+		{
+			read_flash(DOKI_DATA_START_ADDR+doki_fota_block_index*DOKI_DATA_BUFF_SIZE,(uint32_t *)databuf,DOKI_DATA_BUFF_SIZE);
+			memcpy(buf,&databuf[doki_fota_current_num],20);
+			doki_fota_current_num+=20;
+			return 20;
+		}
+		else 
+		{
+			len=DOKI_DATA_BUFF_SIZE-doki_fota_current_num;
+			read_flash(DOKI_DATA_START_ADDR+doki_fota_block_index*DOKI_DATA_BUFF_SIZE,(uint32_t *)databuf,DOKI_DATA_BUFF_SIZE);
+			memcpy(buf,&databuf[doki_fota_current_num],len);
+			doki_fota_block_index++;
+			doki_fota_current_num=0;
+
+			if(doki_fota_block_index<doki_data_block_index)
+			{
+				read_flash(DOKI_DATA_START_ADDR+doki_fota_block_index*DOKI_DATA_BUFF_SIZE,(uint32_t *)databuf,DOKI_DATA_BUFF_SIZE);
+				memcpy(&buf[len],&databuf[doki_fota_current_num],20-len);
+				doki_fota_current_num=20-len;
+				return 20;
+			}
+			else
+			{
+				if(doki_data_current_num*2>=20-len)
+				{
+					read_flash(DOKI_DATA_START_ADDR+doki_fota_block_index*DOKI_DATA_BUFF_SIZE,(uint32_t *)databuf,DOKI_DATA_BUFF_SIZE);
+					memcpy(&buf[len],&databuf[doki_fota_current_num],20-len);
+					doki_fota_current_num=20-len;
+					return 20;
+				}
+				else
+				{
+					read_flash(DOKI_DATA_START_ADDR+doki_fota_block_index*DOKI_DATA_BUFF_SIZE,(uint32_t *)databuf,DOKI_DATA_BUFF_SIZE);
+					memcpy(&buf[len],&databuf[doki_fota_current_num],doki_data_current_num*2);
+					doki_fota_current_num=doki_data_current_num*2;
+					return doki_fota_current_num+len;
+					
+				}
+			}
+		}
+	}
+	else if(doki_fota_block_index ==doki_data_block_index)
+	{
+		if(doki_fota_current_num+20<=doki_data_current_num*2)
+		{
+			read_flash(DOKI_DATA_START_ADDR+doki_fota_block_index*DOKI_DATA_BUFF_SIZE,(uint32_t *)databuf,DOKI_DATA_BUFF_SIZE);
+			memcpy(buf,&databuf[doki_fota_current_num],20);
+			doki_fota_current_num+=20;
+			return 20;
+		}
+		else
+		{
+			len=doki_data_current_num*2-doki_fota_current_num;
+			read_flash(DOKI_DATA_START_ADDR+doki_fota_block_index*DOKI_DATA_BUFF_SIZE,(uint32_t *)databuf,DOKI_DATA_BUFF_SIZE);
+			memcpy(buf,&databuf[doki_fota_current_num],len);
+			doki_fota_current_num+=len;
+			return len;
+		}
+	}
+	else
+	{
+		return 0;
+	}
+	#endif
+}
+
+void doki_get_time(uint8_t *buf)
+{
+	if(doki_tag & DOKI_TAG_START_TIME)
+	{
+		buf[0] = rtc_env.date.year;
+		buf[1] = rtc_env.date.month;
+		buf[2] = rtc_env.date.day;
+		buf[3] = rtc_env.time.hour;
+		buf[4] = rtc_env.time.minute;
+		buf[5] = rtc_env.time.second;
+	}
+	else
+	{
+		memset(buf,0,6);
+	}
+}
+
+uint8_t doki_set_time(uint8_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second)
+{
+	uint32_t time = year<<26 | month<<22 | day<<17 | hour<<12 | minute<<6 | second;
+
+	if(acc_mode != ACC_MODE_REAL_TIME)
+	{
+		return 1;
+	}
+
+	rtc_time_set(year, month, day, hour, minute, second, NULL);
+	DLOG("%s %d-%02d-%02d %02d:%02d:%02d\r\n", __func__, rtc_env.date.year, rtc_env.date.month, rtc_env.date.day, rtc_env.time.hour, rtc_env.time.minute, rtc_env.time.second);
+
+	if(nvds_put(NVDS_TAG_DOKI_START_TIME, sizeof(time), (uint8_t *)&time) != NVDS_OK)
+	{
+		return 2;
+	}
+
+	return 0;
+}
+
+static void doki_get_nvds_tag(uint8_t nvds_tag, uint16_t nvsd_len, uint8_t tag)
+{
+	uint8_t i = 0, res = 0;
+	uint16_t len = nvsd_len;
+
+	res = nvds_get(nvds_tag, &len, (uint8_t *)databuf);
+	if(res == NVDS_OK && len == nvsd_len)
+	{
+		for(i = 0; i < nvsd_len; i++)
+		{
+			if((uint8_t)databuf[i] != 0xFF)
+			{
+				break;
+			}
+		}
+		//DLOG("%s 0x%02x index %d\r\n", __func__, nvds_tag, i);
+		if(i < nvsd_len)
+		{
+			doki_tag |= tag;
+			switch(nvds_tag)
+			{
+				case NVDS_TAG_DOKI_ACC_CALI:
+					memcpy(&doki_acc_cali, databuf, sizeof(doki_acc_cali));
+					DLOG("NVDS_TAG_DOKI_ACC_CALI[%d %d %d] [%d %d %d] [%d %d %d]\r\n", doki_acc_cali.base[0], doki_acc_cali.base[1], doki_acc_cali.base[2],
+																						doki_acc_cali.g[0], doki_acc_cali.g[1], doki_acc_cali.g[2],
+																						doki_acc_cali.f[0], doki_acc_cali.f[1], doki_acc_cali.f[2]);
+					break;
+				case NVDS_TAG_DOKI_START_TIME:
+					//DLOG("%s %d %d 0x%02X 0x%02X 0x%02X 0x%02X\r\n", __func__, res, len, (uint8_t)databuf[0], (uint8_t)databuf[1], (uint8_t)databuf[2], (uint8_t)databuf[3]);
+					rtc_env.date.year = (uint8_t)databuf[3]>>2;
+					rtc_env.date.month = ((uint8_t)databuf[3]&0x03)<<2 | (uint8_t)databuf[2]>>6;
+					rtc_env.date.day = ((uint8_t)databuf[2]&0x3E)>>1;
+					rtc_env.time.hour = ((uint8_t)databuf[2]&0x01)<<4 | (uint8_t)databuf[1]>>4;
+					rtc_env.time.minute = ((uint8_t)databuf[1]&0x0F)<<2 | (uint8_t)databuf[0]>>6;
+					rtc_env.time.second = (uint8_t)databuf[0]&0x3F;
+					rtc_time_set(rtc_env.date.year, rtc_env.date.month, rtc_env.date.day, rtc_env.time.hour, rtc_env.time.minute, rtc_env.time.second, NULL);
+					DLOG("NVDS_TAG_DOKI_START_TIME %d-%02d-%02d %02d:%02d:%02d\r\n", rtc_env.date.year, rtc_env.date.month, rtc_env.date.day,
+																						rtc_env.time.hour, rtc_env.time.minute, rtc_env.time.second);
+					break;
+				default:
+					break;
+			}
+		}
+	}
+	else
+	{
+		DERR("%s get 0x%02x error(%d)!\r\n", __func__, nvds_tag, res);
+	}
+}
+
+void doki_data_init(void)
+{
+	doki_get_nvds_tag(NVDS_TAG_DOKI_ACC_CALI, NVDS_LEN_DOKI_ACC_CALI, DOKI_TAG_CAL_GS);
+
+	doki_get_nvds_tag(NVDS_TAG_DOKI_START_TIME, NVDS_LEN_DOKI_START_TIME, DOKI_TAG_START_TIME);
+
+	doki_get_nvds_tag(NVDS_TAG_DOKI_SECRET_KEY, NVDS_LEN_DOKI_SECRET_KEY, DOKI_TAG_SECRET_KEY);
+
+	DINFO("%s doki_tag = 0x%02X\r\n", __func__, doki_tag);
+}
+

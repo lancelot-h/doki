@@ -1,0 +1,56 @@
+#ifndef _DOKI_DATA_H_
+#define _DOKI_DATA_H_
+
+#if 1	//flash address
+#define DOKI_FLASH_ADDR_START			0x00000
+
+#define DOKI_FLASH_ADDR_NVDS_START		0x00000
+#define DOKI_FLASH_ADDR_NVDS_END		0x00FFF
+
+#define DOKI_FLASH_ADDR_BL_START		0x01000
+#define DOKI_FLASH_ADDR_BL_END			0x010FF
+#define DOKI_FLASH_ADDR_APP_START		0x01100
+#define DOKI_FLASH_ADDR_APP_END			0x0EFFF
+
+#define DOKI_FLASH_ADDR_CFG_START		0x0F000
+#define DOKI_FLASH_ADDR_CFG_END			0x0FFFF
+#define DOKI_FLASH_ADDR_CFG_BK_START	0x10000
+#define DOKI_FLASH_ADDR_CFG_BK_END		0x10FFF
+
+#define DOKI_FLASH_ADDR_DATA_START		0x11000		//doki ota use this space
+#define DOKI_FLASH_ADDR_DATA_END		0x1EFFF		//max bin size is 56k Byte(with bootloader)
+
+#define DOKI_FLASH_ADDR_NVDS_BK_START	0x1F000
+#define DOKI_FLASH_ADDR_NVDS_BK_END		0x1FFFF
+#endif
+
+#define DOKI_DATA_BUFF_SIZE 256
+
+#if 1	//tags
+#define DOKI_TAG_CAL_GS		0x01
+#define DOKI_TAG_START_TIME	0x02
+#define DOKI_TAG_SECRET_KEY	0x04
+
+extern uint8_t doki_tag;
+#endif
+
+typedef struct
+{
+	int8_t base[3];
+	int8_t g[3];
+	int8_t f[3];
+} doki_acc_cali_struct;
+
+extern int8_t databuf[DOKI_DATA_BUFF_SIZE];
+extern doki_acc_cali_struct doki_acc_cali;
+
+void doki_save_acc_cali(void);
+void doki_get_data_len(uint8_t *buf);
+void doki_trans_init(void);
+void doki_get_time(uint8_t *buf);
+uint8_t doki_get_data(uint8_t *buf);
+uint8_t doki_set_time(uint8_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second);
+void doki_data_init(void);
+
+#endif
+

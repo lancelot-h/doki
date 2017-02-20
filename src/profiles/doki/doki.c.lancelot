@@ -1,0 +1,138 @@
+/**
+ ****************************************************************************************
+ *
+ * @file doki.c
+ *
+ * @brief Proximity Reporter Implementation.
+ *
+ * Copyright (C) RivieraWaves 2009-2012
+ *
+ * $Rev: $
+ *
+ ****************************************************************************************
+ */
+
+/**
+ ****************************************************************************************
+ * @addtogroup DOKI
+ * @{
+ ****************************************************************************************
+ */
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+
+#include "app_config.h"
+
+#if (BLE_DOKI_DEVICE)
+
+#include "doki.h"
+#include "doki_task.h"
+#include "atts_db.h"
+#include "doki_debug.h"
+#include "nvds.h"
+#include "doki_data.h"
+#include "doki_debug.h"
+#include "rtc.h"
+#include "kxtik1004.h"
+#include "led.h"
+#include "usr_design.h"
+
+/*
+ * PROXIMITY PROFILE ATTRIBUTES DEFINITION
+ ****************************************************************************************
+ */
+
+
+const struct atts_desc doki_ble_att_db[DOKI_IDX_NB] =
+{
+	[DOKI_IDX_SVC]			= {ATT_DECL_PRIMARY_SERVICE, PERM(RD, ENABLE), sizeof(doki_ble_svc), sizeof(doki_ble_svc), (uint8_t *)&doki_ble_svc},
+
+	[DOKI_IDX_CONFIG_CHAR]	= {ATT_DECL_CHARACTERISTIC, PERM(RD, ENABLE), sizeof(doki_ble_config_char), sizeof(doki_ble_config_char), (uint8_t *)&doki_ble_config_char},
+	[DOKI_IDX_CONFIG_VAL]	= {ATT_CHAR_DOKI_CONFIG, PERM(RD, ENABLE) | PERM(WR, ENABLE) | PERM(NTF, ENABLE), BLE_BUFFER_SIZE, BLE_BUFFER_SIZE, data_buf},
+
+	[DOKI_IDX_DATA0_CHAR]	= {ATT_DECL_CHARACTERISTIC, PERM(RD, ENABLE), sizeof(doki_ble_data_char), sizeof(doki_ble_data_char), (uint8_t *)&doki_ble_data_char},
+	[DOKI_IDX_DATA0_VAL]	= {ATT_CHAR_DOKI_DATA0, PERM(RD, ENABLE) | PERM(NTF, ENABLE) | PERM(NTF, ENABLE), BLE_BUFFER_SIZE, BLE_BUFFER_SIZE, data_buf},
+
+	[DOKI_IDX_DATA1_CHAR]   = {ATT_DECL_CHARACTERISTIC, PERM(RD, ENABLE), sizeof(doki_ble_debug_char), sizeof(doki_ble_debug_char), (uint8_t *)&doki_ble_debug_char},
+	[DOKI_IDX_DATA1_VAL]	= {ATT_CHAR_DOKI_DATA1, PERM(RD, ENABLE) | PERM(WR, ENABLE) | PERM(NTF, ENABLE), BLE_BUFFER_SIZE, BLE_BUFFER_SIZE, data_buf},
+	
+	[DOKI_IDX_FOTA_CHAR]	= {ATT_DECL_CHARACTERISTIC, PERM(RD, ENABLE), sizeof(doki_ble_fota_char), sizeof(doki_ble_fota_char), (uint8_t *)&doki_ble_fota_char},
+	[DOKI_IDX_FOTA_VAL]		= {ATT_CHAR_DOKI_FOTA, PERM(RD, ENABLE) | PERM(WR, ENABLE) | PERM(NTF, ENABLE), BLE_BUFFER_SIZE, BLE_BUFFER_SIZE, data_buf},
+};
+
+/*
+ *  PROXIMITY PROFILE ATTRIBUTES VALUES DEFINTION
+ ****************************************************************************************
+ */
+
+/// Doki Service
+const atts_svc_desc_t doki_ble_svc = ATT_SVC_DOKI;
+/// Doki Service -Config Characteristic
+const struct atts_char_desc doki_ble_config_char	= ATTS_CHAR(ATT_CHAR_PROP_RD | ATT_CHAR_PROP_WR_NO_RESP | ATT_CHAR_PROP_NTF, 0, ATT_CHAR_DOKI_CONFIG);
+/// Doki Service -Data Characteristic
+const struct atts_char_desc doki_ble_data_char		= ATTS_CHAR(ATT_CHAR_PROP_RD | ATT_CHAR_PROP_WR_NO_RESP | ATT_CHAR_PROP_NTF, 0, ATT_CHAR_DOKI_DATA0);
+/// Doki Service -Debug Characteristic
+const struct atts_char_desc doki_ble_debug_char	 = ATTS_CHAR(ATT_CHAR_PROP_RD | ATT_CHAR_PROP_WR_NO_RESP | ATT_CHAR_PROP_NTF, 0, ATT_CHAR_DOKI_DATA1);
+/// Doki Service -fota Characteristic
+const struct atts_char_desc doki_ble_fota_char		= ATTS_CHAR(ATT_CHAR_PROP_RD | ATT_CHAR_PROP_WR_NO_RESP | ATT_CHAR_PROP_NTF, 0, ATT_CHAR_DOKI_FOTA);
+
+/*
+ * GLOBAL VARIABLE DEFINITIONS
+ ****************************************************************************************
+ */
+
+struct doki_env_tag doki_env;
+
+
+/*
+ * FUNCTION DEFINITIONS
+ ****************************************************************************************
+ */
+
+void doki_prf_init(void)
+{
+	// Reset Environment
+	memset(&doki_env, 0, sizeof(doki_env));
+
+	// Register DOKI task into kernel	
+	task_doki_desc_register();
+	
+	ke_state_set(TASK_DOKI, DOKI_DISABLED);
+}
+
+void doki_disable(void)
+{
+	//check acc mode again
+	acc_set_mode(acc_mode);
+
+	//disable led
+	led_set(LED_OFF);
+	//disable 32k RCO timer
+	ke_timer_clear(APP_SYS_RCO_CAL_TIMER, TASK_APP);
+	//disable ble timer
+	doki_ble_timer_stop();
+
+	rtc_time_get();
+	DLOG("%s %02d:%02d:%02d\r\n", __func__, rtc_env.time.hour, rtc_env.time.minute, rtc_env.time.second);
+
+	if (doki_env.doki_ble_shdl != ATT_INVALID_HANDLE)
+	{
+		attsdb_svc_set_permission(doki_env.doki_ble_shdl, PERM_RIGHT_DISABLE);
+	}
+
+	struct doki_disable_ind *ind = KE_MSG_ALLOC(DOKI_DISABLE_IND,
+												 doki_env.con_info.appid, TASK_DOKI,
+												 doki_disable_ind);
+	// Send the message
+	ke_msg_send(ind);
+
+	// Go to idle state
+	ke_state_set(TASK_DOKI, DOKI_IDLE);
+}
+
+#endif
+
+/// @} DOKI

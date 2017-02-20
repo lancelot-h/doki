@@ -1,0 +1,53 @@
+/**
+ ****************************************************************************************
+ *
+ * @file led.h
+ *
+ * @brief Header file of led driver for qn evb.
+ *
+ * Copyright(C) 2015 NXP Semiconductors N.V.
+ * All rights reserved.
+ *
+ * $Rev: 1.0 $
+ *
+ ****************************************************************************************
+ */
+#ifndef _LED_H_
+#define _LED_H_
+
+#include "app_env.h"
+
+/*
+ * MACRO DEFINITIONS
+ ****************************************************************************************
+ */
+
+#define LED_PIN			(GPIO_P30)
+
+// 5k Hz
+#define LED_TIMER		QN_TIMER2
+#define LED_TIMER_DIV	1
+#define LED_TIMER_COUNT	200
+
+/*
+ * ENUMERATION DEFINITIONS
+ ****************************************************************************************
+ */
+
+typedef enum
+{
+	LED_ON = 0,
+	LED_FLASH = 1,
+	LED_BREATH = 2,
+	LED_OFF = (int)0xffffffff
+} LED_MODE;
+
+/*
+ * FUNCTION DECLARATIONS
+ ****************************************************************************************
+ */
+void led_timer_process(void);
+void led_set(LED_MODE mode);
+void led_init(void);
+
+#endif

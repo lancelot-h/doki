@@ -1,0 +1,174 @@
+/**
+ ****************************************************************************************
+ *
+ * @file doki_task.h
+ *
+ * @brief Header file - DOKITASK.
+ *
+ * Copyright (C) RivieraWaves 2009-2012
+ *
+ * $Rev: 5767 $
+ *
+ ****************************************************************************************
+ */
+
+#ifndef DOKI_TASK_H_
+#define DOKI_TASK_H_
+
+/// @cond
+
+/**
+ ****************************************************************************************
+ * @addtogroup DOKITASK Proximity Reporter Task
+ * @ingroup DOKI
+ * @brief Proximity Reporter Task
+ *
+ * The DOKITASK is responsible for handling the APi messages from the Application or internal
+ * tasks.
+ *
+ * @{
+ ****************************************************************************************
+ */
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+
+#if (BLE_DOKI_DEVICE)
+
+#include <stdint.h>
+#include "ke_task.h"
+#include "doki.h"
+
+/*
+ * DEFINES
+ ****************************************************************************************
+ */
+
+/// Maximum number of Proximity Reporter task instances
+#define DOKI_IDX_MAX                 (1)
+
+/*
+ * ENUMERATIONS
+ ****************************************************************************************
+ */
+
+/// Possible states of the DIKI task
+enum
+{
+    /// Disabled State
+    DOKI_DISABLED,
+    /// Idle state
+    DOKI_IDLE,
+    /// Connected state
+    DOKI_PRE_CONNECTED,
+    DOKI_CONNECTED,
+
+    /// Number of defined states.
+    DOKI_STATE_MAX
+};
+
+/// Messages for Doki device
+enum
+{
+    /// Start the doki device
+    DOKI_ENABLE_REQ = KE_FIRST_MSG(TASK_DOKI),
+
+    /// Disable confirm will allow sending the APP the current LLS alert level to keep
+    DOKI_DISABLE_IND,
+
+    ///Add a LLS instance and optionally a TXPS instance into the database
+    DOKI_CREATE_DB_REQ,
+    ///Inform APP of database creation status
+    DOKI_CREATE_DB_CFM,
+
+    /// Error Indication
+    DOKI_ERROR_IND,
+};
+
+/// DOKI_CREATE_DB_REQ - Bit values
+enum
+{
+    DOKI_FEATURES_NOT_SUP,
+    DOKI_FEATURES_SUP,
+};
+
+/*
+ * API MESSAGES STRUCTURES
+ ****************************************************************************************
+ */
+/// Parameters of the @ref DOKI_CREATE_DB_REQ message
+struct doki_create_db_req
+{
+    uint8_t features;
+};
+
+/// Parameters of the @ref DOKI_ENABLE_REQ message
+struct doki_enable_req
+{
+	/// Connection Handle
+	uint16_t conhdl;
+	/// Security level
+	uint8_t sec_lvl;
+};
+
+
+/// @endcond
+
+/**
+ ****************************************************************************************
+ * @addtogroup APP_DOKI_TASK
+ * @{
+ ****************************************************************************************
+ */
+
+/// Parameters of the @ref DOKI_CREATE_DB_CFM message
+struct doki_create_db_cfm
+{
+    /// Status
+    uint8_t status;
+};
+
+/// Parameters of the @ref DOKI_DISABLE_IND message
+struct doki_disable_ind
+{
+    /// Connection Handle
+    uint16_t conhdl;
+    /// LLS alert level to save in APP
+    uint8_t  lls_alert_lvl;
+};
+
+/// @}APP_DOKI_TASK
+
+/// @cond
+
+/*
+ * GLOBAL VARIABLES DECLARATIONS
+ ****************************************************************************************
+ */
+
+extern const struct ke_state_handler doki_state_handler[DOKI_STATE_MAX];
+extern const struct ke_state_handler doki_default_handler;
+extern ke_state_t doki_state[DOKI_IDX_MAX];
+
+#define DOKI_UPDATE_DATA		0x01
+#define DOKI_UPDATE_REALTIME	0x02
+#define DOKI_UPDATE_DEBUG		0x04
+#define DOKI_UPDATE_OTA			0x08
+
+#define DOKI_PDU_MAX_SIZE			20
+
+extern uint8_t doki_mode;
+extern uint8_t data_buf[BLE_BUFFER_SIZE];
+extern uint8_t doki_tag;
+extern uint8_t doki_update_flag;
+
+void task_doki_desc_register(void);
+void doki_notify_send(atts_size_t len,uint8_t* value,uint16_t shdl);
+
+#endif
+
+/// @} DOKITASK
+/// @endcond
+#endif // DOKI_TASK_H_

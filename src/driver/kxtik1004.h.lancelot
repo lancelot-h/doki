@@ -1,0 +1,88 @@
+/**************************************************************************//**
+    @file       bma250.h
+
+    @brief      Header file for accelerometer BMA250. @Note This header file
+                does not include all register addresses for the BMA250.
+
+******************************************************************************/
+#ifndef KXTIK10024_H
+#define KXTIK10024_H
+
+
+/******************************************************************************
+ * INCLUDES
+ */
+#include "syscon.h"
+
+/******************************************************************************
+ * DEFINES
+ */
+
+#define ACC_INT_PIN			(GPIO_P03)  //GPIO_P03 GPIO_P31
+
+#define I2C_BUF_SIZE		(256)
+
+#define KXTIK1004_I2C_ADDRESS				0x0F	//7bit
+#define KXTIK1004_DEVICE_ID					0x05
+#define KXTIK1004_BUFSIZE					256
+
+//XL XH YL YH ZL ZH
+#define KXTIK1004_ADDR_HPF_DATAX0			0x00
+#define KXTIK1004_ADDR_DATAX0				0x06
+#define KXTIK1004_ADDR_DEVICE_ID			0x0F
+#define KXTIK1004_ADDR_INT_REL				0x1A
+#define KXTIK1004_ADDR_CTRL1				0x1B
+#define KXTIK1004_ADDR_CTRL2				0x1C
+#define KXTIK1004_ADDR_CTRL3				0x1D
+#define KXTIK1004_ADDR_INC1					0x1E
+#define KXTIK1004_ADDR_INC2					0x1F
+#define KXTIK1004_ADDR_INC3					0x20
+#define KXTIK1004_ADDR_DATA_CTRL			0x21
+
+#define KXTIK1004_ADDR_TDT_TIMER			0x2B
+#define KXTIK1004_ADDR_TDT_H_THRESH			0x2C
+#define KXTIK1004_ADDR_TDT_L_THRESH			0x2D
+#define KXTIK1004_ADDR_TDT_TAP_TIMER		0x2E
+#define KXTIK1004_ADDR_TDT_TOTAL_TIMER		0x2F
+#define KXTIK1004_ADDR_TDT_LAT_TIMER		0x30
+#define KXTIK1004_ADDR_TDT_WIN_TIMER		0x31
+
+#define KXTIK1004_ADDR_BUF_CTRL1			0x32
+#define KXTIK1004_ADDR_BUF_CTRL2			0x33
+#define KXTIK1004_ADDR_BUF_STATUS1			0x34
+#define KXTIK1004_ADDR_BUF_STATUS2			0x35
+#define KXTIK1004_ADDR_BUF_CLEAR			0x36
+
+#define KXTIK1004_ADDR_BUF_READ				0x7F
+
+enum ACC_DATA_CHANGED_ENUM
+{
+    ACC_DATA_NO_CHANGED = 0,
+    ACC_DATA_CHANGED,
+};
+/******************************************************************************
+ * FUNCTION PROTOTYPES
+ */
+void acc_init(void);
+void acc_event_int_handler(void);
+void acc_read_buff(void);
+void acc_set_mode(uint8_t mode);
+uint8_t doki_gsensor_changed(void);
+
+
+typedef enum
+{
+	ACC_MODE_UNINIT = 0,
+	ACC_MODE_IDLE,
+	ACC_MODE_REAL_TIME,
+	ACC_MODE_CALI,
+	ACC_MODE_SLEEP,
+	ACC_MODE_ERROR,
+} ACC_MODE;
+
+extern uint8_t acc_mode;
+
+void acc_set_mode(uint8_t mode);
+void acc_calibration_start(void);
+
+#endif

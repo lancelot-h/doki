@@ -1,0 +1,462 @@
+/**
+ ****************************************************************************************
+ *
+ * @file usr_design.c
+ *
+ * @brief Product related design.
+ *
+ * Copyright(C) 2015 NXP Semiconductors N.V.
+ * All rights reserved.
+ *
+ * $Rev: 1.0 $
+ *
+ ****************************************************************************************
+ */
+
+/**
+ ****************************************************************************************
+ * @addtogroup  USR
+ * @{
+ ****************************************************************************************
+ */
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+
+#include <stdint.h>
+#include "app_env.h"
+#include "led.h"
+#include "uart.h"
+#include "buzz.h"
+#include "lib.h"
+#include "usr_design.h"
+#include "gpio.h"
+#include "button.h"
+#include "sleep.h"
+#include "doki_debug.h"
+#include "kxtik1004.h"
+#include "timer.h"
+#include "doki_data.h"
+#include "rtc.h"
+
+
+/*
+ * MACRO DEFINITIONS
+ ****************************************************************************************
+ */
+
+#define IOS_MIN_PARAM_INTV_MIN		0x08
+#define IOS_MIN_PARAM_IMTV_MAX		0x10
+#define IOS_MIN_PARAM_LATENCY		0
+#define IOS_MIN_PARAM_TIME_OUT		100
+
+#define DOKI_BLE_TIMER QN_TIMER0
+#define BLE_TIMER_DIV 999				// 2M/1000=2K Hz max is 0x3FF(1023)
+
+
+/*
+ * GLOBAL VARIABLE DEFINITIONS
+ ****************************************************************************************
+ */
+
+
+/*
+ * FUNCTION DEFINITIONS
+ ****************************************************************************************
+ */
+
+/**
+ ****************************************************************************************
+ * @brief   Application task message handler
+ ****************************************************************************************
+ */
+uint32_t doki_adv_timeout;
+
+void app_task_msg_hdl(ke_msg_id_t const msgid, void const *param)
+{
+	//QPRINTF("app_task_msg_hdl msgid===%d \r\n",msgid-GAP_LE_CANCEL_CONN_REQ);
+
+	switch(msgid)
+	{
+		case GAP_SET_MODE_REQ_CMP_EVT:
+			//由idle切换至adv时
+			if(APP_IDLE == ke_state_get(TASK_APP))
+			{
+				doki_ble_timer_enable(doki_adv_timeout);
+			}
+			break;
+		case GAP_ADV_REQ_CMP_EVT:
+			//DLOG("GAP_ADV_REQ_CMP_EVT\r\n");
+#if 0
+			led_set(LED_OFF);
+			ke_timer_clear(APP_ADV_LAST_TIMER, TASK_APP);
+			//QPRINTF("doki_mode %d\r\n", doki_mode);
+			switch(doki_mode)
+			{
+				case DOKI_MODE_NORMAL:
+				case DOKI_MODE_DEEPSLEEP:
+					sleep_set_pm(PM_DEEP_SLEEP);
+					break;
+				case DOKI_MODE_SLEEP:
+					sleep_timer_set(DOKI_DEEP_SLEEP_TIME);
+					sleep_set_pm(PM_SLEEP);
+					break;
+				default:
+					break;
+			}
+			break;
+#endif
+		case GAP_DISCON_CMP_EVT:
+#if 0
+			led_breath_stop();
+			led_set(LED_OFF);
+			acc_set_mode(DOKI_MODE_NORMAL);
+			sleep_set_pm(PM_DEEP_SLEEP);
+#endif
+			rtc_time_get();
+			DLOG("%s GAP_DISCON_CMP_EVT %02d:%02d:%02d\r\n", __func__, rtc_env.time.hour, rtc_env.time.minute, rtc_env.time.second);
+			break;
+		case GAP_LE_CREATE_CONN_REQ_CMP_EVT:
+		if(((struct gap_le_create_conn_req_cmp_evt *)param)->conn_info.status == CO_ERROR_NO_ERROR)
+		{
+			if(GAP_PERIPHERAL_SLV == app_get_role())
+			{
+				doki_ble_timer_enable(DOKI_BLE_CONNECT_TIMEOUT);
+				led_set(LED_BREATH);
+				if (((struct gap_le_create_conn_req_cmp_evt *)param)->conn_info.con_interval < GAP_PPCP_CONN_INTV_MIN)
+				{
+					// Update connection parameters here
+					struct gap_conn_param_update conn_par;
+					/// Connection interval minimum
+					conn_par.intv_min = GAP_PPCP_CONN_INTV_MIN;
+					/// Connection interval maximum
+					conn_par.intv_max = GAP_PPCP_CONN_INTV_MAX;
+					/// Latency
+					conn_par.latency = GAP_PPCP_SLAVE_LATENCY;
+					/// Supervision timeout, Time = N * 10 msec
+					conn_par.time_out = GAP_PPCP_STO_MULT;
+					app_gap_param_update_req(((struct gap_le_create_conn_req_cmp_evt *)param)->conn_info.conhdl, &conn_par);
+				}
+#if 0
+				ke_timer_clear(APP_ADV_LAST_TIMER, TASK_APP);
+				doki_ble_sleep_timer_start();
+				// Update cnx parameters
+				sleep_set_pm(PM_SLEEP);
+#endif
+			}
+		}
+		break;
+		default:
+			break;
+	}
+}
+
+/**
+ ****************************************************************************************
+ * @brief   Restore peripheral setting after wakeup
+ ****************************************************************************************
+ */
+void usr_sleep_restore(void)
+{
+#if QN_DBG_PRINT
+	uart_init(QN_DEBUG_UART, USARTx_CLK(0), UART_921600);
+	uart_tx_enable(QN_DEBUG_UART, MASK_ENABLE);
+	uart_rx_enable(QN_DEBUG_UART, MASK_ENABLE);
+#endif
+}
+
+
+void doki_adv_start(uint32_t adv_timeout)
+{
+	if(ble_ext_wakeup_allow())
+	{
+		sw_wakeup_ble_hw();
+	}
+
+	doki_adv_timeout = adv_timeout;
+	ke_evt_set(1UL << DOKI_KE_EVT_ADV);
+}
+
+/**
+ ****************************************************************************************
+ * @brief   All GPIO interrupt callback
+ ****************************************************************************************
+ */
+void gpio_interrupt_callback(enum gpio_pin pin)
+{
+	static uint8_t doki_adv_count = 1;
+	//DLOG("%s 0x%02X\r\n", __func__, pin);
+	switch(pin)
+	{
+		case ACC_INT_PIN:
+			if(1)//doki_adv_count >= DOKI_ADV_COUNT)
+			{
+				doki_adv_count = 1;
+				if(doki_adv_timeout == 0)
+				{
+					doki_adv_start(DOKI_BLE_INT_ADV_TIMEOUT);
+				}
+			}
+			else
+			{
+				doki_adv_count++;
+			}
+			ke_evt_set(1UL << DOKI_KE_EVT_ACC_INT);
+			break;
+		default:
+			break;
+	}
+}
+
+#if 1
+#if 1
+static void doki_led_timer_init(void)
+{
+	uint32_t ctrl_reg = 0;
+
+	//timer_init(QN_TIMER2, led_timer_process);
+	//disable timer
+	timer_timer_SetCRWithMask(QN_TIMER2, TIMER_MASK_TEN, MASK_DISABLE);
+	//enable timer irq
+	NVIC_EnableIRQ(TIMER2_IRQn);
+	//set timer count & cb
+	timer2_env.count = 0;
+	timer2_env.callback = led_timer_process;
+
+	//timer_config(QN_TIMER2, LED_TIMER_DIV, LED_TIMER_COUNT);		//__TIMER_CLK/(LED_TIMER_DIV+1)/LED_TIMER_COUNT=10K
+	ctrl_reg = CLK_PSCL										/* set clock source to prescaler clock */
+			| (LED_TIMER_DIV << TIMER_POS_PSCL)				/* set prescaler value */
+			| TIMER_MASK_TOVIE					 			/* enable timer overflow int */
+			| FREE_RUNNING_MOD;					 			/* select free running mode */
+
+	timer_timer_SetTOPR(QN_TIMER2, LED_TIMER_COUNT-1);
+	timer_timer_SetCR(QN_TIMER2, ctrl_reg);
+}
+#endif
+
+#if 1
+/**
+ ****************************************************************************************
+ * @brief callback function of 32k clock correction
+ * @return
+ * @description
+ *  This function will be called after 32k clock correction is finish
+ *****************************************************************************************
+ */
+static void clock_32k_correction_cb(void)
+{
+    uint32_t dir = 0;
+    uint32_t ppm;
+    uint32_t tmp;
+
+	// remove warning
+	dir = dir;
+
+	// Formula: ppm = (0x100000ull * 32000(Hz) * count) / (refclk_freq(Hz) * ncycle(32K cycle number));
+	// In this function, refclk_freq is set to 8MHz, ncycle is set to 16
+	//ppm = (0x2000000ull * timer1_env.count) / (8*16 * 1000);
+	//ppm = (0x8000 * timer1_env.count) / 125;
+	//ppm = 0x8000 * count / 125(8M)
+	tmp = (0x10000 * timer1_env.count);
+
+	// error: 1.3e-9
+	ppm = (tmp>>7) + (tmp>>13) + (tmp>>14) + (tmp>>18) + (tmp>>21) + (tmp>>24) + (tmp>>25) + (tmp>>26);
+	//ppm = tmp/125
+
+	if (ppm > 0x100000) {
+	    ppm = ppm - 0x100000;
+	    dir = 0;
+	}
+	else {
+	    ppm = 0x100000 - ppm;
+	    dir = 1;
+	}
+	if (ppm > 0xFFFF) {
+		ppm = 0xFFFF;
+	}
+	// disable timer
+	//timer_enable(QN_TIMER0, MASK_DISABLE);
+	timer_timer_SetCRWithMask(QN_TIMER1, TIMER_MASK_TEN, MASK_DISABLE);
+	dev_allow_sleep(PM_MASK_TIMER1_ACTIVE_BIT);
+
+	syscon_SetCRSS(QN_SYSCON, SYSCON_MASK_GATING_TIMER1);
+
+	// write to rtc calibration register
+	rtc_calibration(dir, ppm);
+
+	// TODO: add user code here
+	int32_t real_ppm = (dir)? -ppm : ppm;
+	set_32k_ppm(real_ppm);
+
+	//DLOG("%s ppm(%d) dir(%d)\r\n", __func__, ppm, dir);
+}
+
+static void doki_correction_timer_init(void)
+{
+	uint32_t ctrl_reg = 0;
+
+	//disable timer
+	timer_timer_SetCRWithMask(QN_TIMER1, TIMER_MASK_TEN, MASK_DISABLE);
+	//enable timer irq
+	NVIC_EnableIRQ(TIMER1_IRQn);
+	//set timer count & cb
+	timer1_env.count = 0;
+	timer1_env.callback = clock_32k_correction_cb;
+
+	//config timer
+	// set counter event top number fix to 32
+	timer_timer_SetTOPR(QN_TIMER1, 32);
+	ctrl_reg = CLK_PSCL							 /* set clock source to prescaler clock */
+			| (0 << TIMER_POS_PSCL)				/* set prescaler to zero */
+			| TIMER_MASK_ICNCE					 /* enable input capture noise canceller */
+			| INCAP_PIN1						   /* set input capture pin to pin1(32k) */
+			| INCAP_SRC_PIN						/* set input capture source to capture PIN */
+			| INCAP_EDGE_POS					   /* set input capture edge to pos edge */
+			| INCAP_COUNTER_MOD					/* select input capture counter mode */
+			| TIMER_MASK_ICIE					  /* enable input capure int */
+			| TIMER_MASK_TEN;					  /* enable timer */
+	timer_timer_SetCR(QN_TIMER1, ctrl_reg);
+}
+
+void doki_correction_timer_start(void)
+{
+	syscon_SetCRSC(QN_SYSCON, SYSCON_MASK_GATING_TIMER1);
+
+	//timer_enable(QN_TIMER0, MASK_ENABLE);
+	timer_timer_SetCRWithMask(QN_TIMER1, TIMER_MASK_TEN, MASK_ENABLE);
+	dev_prevent_sleep(PM_MASK_TIMER1_ACTIVE_BIT);
+}
+#endif
+
+#if 1
+static void doki_ble_timer_cb(void)
+{
+	//doki_check_mode();
+	//DLOG("Lancelot %s\r\n", __func__);
+	if(APP_ADV == ke_state_get(TASK_APP))
+	{
+		// stop adv
+		app_gap_adv_stop_req();
+	}
+	else if(doki_env.con_info.conhdl != 0xFFFF)
+	{
+		//disconnect
+		app_gap_discon_req(doki_env.con_info.conhdl);
+		//DLOG("%s disconnect\r\n", __func__);
+	}
+}
+
+static void doki_ble_timer_init(void)
+{
+	//用于设定广播及断开连接的时间,仅注册回调函数,具体触发时间根据不同广播模式在使能时设置
+	//timer_init(QN_TIMER0, doki_ble_timer_cb);
+	//disable timer
+	timer_timer_SetCRWithMask(QN_TIMER0, TIMER_MASK_TEN, MASK_DISABLE);
+	//enable timer irq
+	NVIC_EnableIRQ(TIMER0_IRQn);
+	//set timer count & cb
+	timer0_env.count = 0;
+	timer0_env.callback = doki_ble_timer_cb;
+}
+
+void doki_ble_timer_enable(uint32_t ms)
+{
+	uint32_t ctrl_reg = 0;
+	
+	//rtc_time_get();
+
+	//DLOG("%s %d %02d:%02d:%02d\r\n", __func__, ms, rtc_env.time.hour, rtc_env.time.minute, rtc_env.time.second);
+
+	//reset para
+	doki_adv_timeout = 0;
+
+	//timer_enable(QN_TIMER0, MASK_DISABLE);
+	timer_timer_SetCRWithMask(QN_TIMER0, TIMER_MASK_TEN, MASK_DISABLE);
+
+	//timer_config(QN_TIMER0, BLE_TIMER_DIV, ms);
+	ctrl_reg = CLK_PSCL										/* set clock source to prescaler clock */
+			| (BLE_TIMER_DIV << TIMER_POS_PSCL)				/* set prescaler value */
+			| TIMER_MASK_TOVIE					 			/* enable timer overflow int */
+			| FREE_RUNNING_MOD;					 			/* select free running mode */
+
+	timer_timer_SetTOPR(QN_TIMER0, (ms<<1)-1);				// 2k Hz 1ms=2count
+	timer_timer_SetCR(QN_TIMER0, ctrl_reg);
+
+	syscon_SetCRSC(QN_SYSCON, SYSCON_MASK_GATING_TIMER0);
+
+	//timer_enable(QN_TIMER0, MASK_ENABLE);
+	timer_timer_SetCRWithMask(QN_TIMER0, TIMER_MASK_TEN, MASK_ENABLE);
+	dev_prevent_sleep(PM_MASK_TIMER0_ACTIVE_BIT);
+}
+
+void doki_ble_timer_stop(void)
+{
+	//timer_enable(QN_TIMER0, MASK_DISABLE);
+	timer_timer_SetCRWithMask(QN_TIMER0, TIMER_MASK_TEN, MASK_DISABLE);
+	dev_allow_sleep(PM_MASK_TIMER0_ACTIVE_BIT);
+
+	syscon_SetCRSS(QN_SYSCON, SYSCON_MASK_GATING_TIMER0);
+}
+#endif
+
+static void doki_timer_init(void)
+{
+	doki_led_timer_init();
+
+	doki_correction_timer_init();
+
+	doki_ble_timer_init();
+}
+#endif
+
+#if 1
+static void doki_ble_adv_handler(void)
+{
+	ke_evt_clear(1UL << DOKI_KE_EVT_ADV);
+	//QPRINTF("%s %d %d\r\n", __func__, app_env.doki_ev.enabled, ke_state_get(TASK_APP));
+
+	if((!app_env.doki_ev.enabled)&&(APP_IDLE == ke_state_get(TASK_APP)))
+	{
+		//DLOG("Lancelot %s\r\n", __func__);
+		//led_set(LED_ON);
+		led_set(LED_BREATH);
+		//start adv
+		app_gap_adv_start_req(GAP_GEN_DISCOVERABLE|GAP_UND_CONNECTABLE, app_env.adv_data, app_set_adv_data(GAP_GEN_DISCOVERABLE),
+								app_env.scanrsp_data, app_set_scan_rsp_data(app_get_local_service_flag()), GAP_ADV_FAST_INTV1, GAP_ADV_FAST_INTV2);
+	}
+}
+#endif
+
+/**
+ ****************************************************************************************
+ * @brief   User initialize
+ ****************************************************************************************
+ */
+void usr_init(void)
+{
+	rtc_init();
+
+	doki_timer_init();
+
+	//for ble adv
+	if(KE_EVENT_OK != ke_evt_callback_set(DOKI_KE_EVT_ADV, doki_ble_adv_handler))
+	{
+		ASSERT_ERR(0);
+	}
+
+	//for acc int
+	if(KE_EVENT_OK != ke_evt_callback_set(DOKI_KE_EVT_ACC_INT, acc_event_int_handler))
+	{
+		ASSERT_ERR(0);
+	}
+
+	//doki_init();
+	doki_data_init();
+	acc_init();
+
+	//DLOG("%s done\r\n", __func__);
+}
+
+/// @} USR

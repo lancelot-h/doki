@@ -1,0 +1,271 @@
+/**
+ ****************************************************************************************
+ *
+ * @file arch_main.c
+ *
+ * @brief Main loop of the application.
+ *
+ * Copyright(C) 2015 NXP Semiconductors N.V.
+ * All rights reserved.
+ *
+ * $Rev: 1.0 $
+ *
+ ****************************************************************************************
+ */
+
+/**
+ * @addtogroup MAIN
+ * @{
+ */
+
+/*
+ * INCLUDES
+ ****************************************************************************************
+ */
+
+#include "stdint.h"
+#include "app_config.h"
+#include "ble.h"
+#include "intc.h"
+#include "lib.h"
+#include "prf_utils.h"
+#include "app_env.h"
+
+#include "usr_design.h"
+#include "system.h"
+#include "uart.h"
+#include "spi.h"
+#include "sleep.h"
+#include "led.h"
+#include "rng.h"
+#include "doki_data.h"
+#include "doki_debug.h"
+#include "rtc.h"
+
+/*
+ * LOCAL VARIABLES
+ ****************************************************************************************
+ */
+
+static uint8_t ble_heap[BLE_HEAP_SIZE];
+static uint8_t nvds_tmp_buf[NVDS_TMP_BUF_SIZE];
+
+#ifdef CFG_DBG_PRINT
+/**
+ ****************************************************************************************
+ * @brief Assert error
+ ****************************************************************************************
+ */
+void assert_err(const char *condition, const char * file, int line)
+{
+    QPRINTF("ASSERT_ERR(%s), in %s at line %d\r\n", condition, file, line);
+    GLOBAL_INT_STOP();
+    while(1);
+}
+
+void assert_param(int param0, int param1, const char * file, int line)
+{
+    GLOBAL_INT_STOP();
+    while(1);
+}
+
+void assert_warn(const char *condition, const char * file, int line)
+{
+    QPRINTF("ASSERT_WARN(%s), in %s at line %d\r\n", condition, file, line);
+}
+#endif //CFG_DBG_PRINT
+
+/**
+ ****************************************************************************************
+ * @brief Hardfault exception handler
+ *
+ * The hardfault exception will be processed here if CFG_SW_RELEASE is defined.
+ *
+ ****************************************************************************************
+ */
+#if (defined(QN_SW_RELEASE))
+void HardFault_Handler(void)
+{
+    // Reboot system
+    syscon_SetCRSS(QN_SYSCON, SYSCON_MASK_REBOOT_SYS);
+}
+#endif
+
+/**
+ ****************************************************************************************
+ * @brief Profiles register function
+ *
+ * This function register profile callback into BLE stack.
+ *
+ ****************************************************************************************
+ */
+static void prf_register(void)
+{
+    prf_init_reg(prf_init);
+
+    prf_disp_disconnect_reg(prf_dispatch_disconnect);
+}
+
+#include "serialflash.h"
+extern int8_t databuf[256];
+void get_flash_data(void)
+{
+	uint8_t i = 0, j = 0;
+	uint16_t n = 0;
+	uint32_t addr = 0;
+
+	power_on_flash(FLASH_RD);
+
+	while(i < 32)				//32
+	{
+		for(j = 0; j < 16; j++)	//16
+		{
+			addr = 0x1000*i+256*j;
+			read_flash(addr,(uint32_t *)databuf, 256);
+			QPRINTF("0x%08X======\r\n", addr);
+			for(n = 0; n < 256; n++)
+			{
+				QPRINTF("0x%02X ", (uint8_t)databuf[n]);
+				
+				if((n+1)%16 == 0)
+				{
+					QPRINTF("\r\n");
+				}
+			}	
+		}
+		i++;
+	}
+}
+/**
+ ****************************************************************************************
+ * @brief BLE main function.
+ *
+ * This function is called right after the booting process has completed.
+ ****************************************************************************************
+ */
+int main(void)
+{
+    int ble_sleep_st, usr_sleep_st;
+
+    // XTAL load cap
+    // xadd_c = 1 -> load cap = 10 + xcsel*0.32pf   (xcsel is reg_0x400000a4[17:22], the value of xcsel is stored in the NVDS)
+    // xadd_c = 0 -> load cap = 6 + xcsel*0x3pf
+    syscon_SetAdditionCRWithMask(QN_SYSCON, SYSCON_MASK_XADD_C, MASK_ENABLE);
+
+    // DC-DC
+    dc_dc_enable(QN_DC_DC_ENABLE);
+
+    enable_32k_mode();
+
+    // QN platform initialization
+    plf_init(QN_POWER_MODE, __XTAL, QN_32K_RCO, nvds_tmp_buf, NVDS_TMP_BUF_SIZE);
+
+    // System initialization, user configuration
+    SystemInit();
+
+    // Profiles register
+    prf_register();
+
+    // BLE stack initialization
+    // Notes:
+    // 1. When the chip works on Network Processor Mode, UART flow control signal is used to implement sleep mode.
+    // UART 's flow control feature shall be enabled. Enable this feature in the uart.c file.
+    // 2. Controller mode does not support sleep mode.
+    // 3. So far client example project does not support sleep mode. It will be implemented later.
+
+    // Work mode defined in the usr_config.h
+    ble_init((enum WORK_MODE)QN_WORK_MODE, NULL, NULL, NULL, ble_heap, BLE_HEAP_SIZE, QN_BLE_SLEEP);
+    
+    // Set a true random seed to the ROM code.
+    // rng.c and adc.c have to be added in the project when this function is called.
+#if (QN_FW_SRAND)
+    fw_srand(rng_get());
+#endif
+
+    set_max_sleep_duration(QN_BLE_MAX_SLEEP_DUR);
+
+    // If QN902x works on wireless SoC mode, initialize APP task
+    app_init();
+
+    usr_init();
+
+    sleep_init();
+    wakeup_by_sleep_timer(__32K_TYPE);
+
+    GLOBAL_INT_START();
+
+	//get_flash_data();
+
+    while(1)
+    {
+        ke_schedule();
+
+        // Checks for sleep have to be done with interrupt disabled
+        GLOBAL_INT_DISABLE_WITHOUT_TUNER();
+
+        // Check whether the chip can enters sleep mode
+        //
+        // Chip enter sleep condition:
+        // +--------+--------+--------+--------+--------+
+        // |    USR |        |        |        |        |
+        // | BLE    | ACTIVE | IDLE   | SLEEP  | DEEP   |
+        // +--------+--------+--------+--------+--------+
+        // | ACTIVE | active | active | active | active |
+        // | IDLE   | active | idle   | idle   | idle   |
+        // | SLEEP  | active | idle   | sleep  | deep   |
+        // +--------+--------+--------+--------+--------+
+
+        // Obtain the status of the user program
+        usr_sleep_st = usr_sleep();
+
+		//for test Lancelot
+		//usr_sleep_st = PM_ACTIVE;
+
+        // If the user program can be sleep or deep sleep then check ble status
+        if(usr_sleep_st != PM_ACTIVE)
+        {
+            // Obtain the status of ble sleep mode
+            ble_sleep_st = ble_sleep(usr_sleep_st);
+
+            // Check if the processor clock can be gated
+            if(((ble_sleep_st == PM_IDLE) || (usr_sleep_st == PM_IDLE))
+             && (ble_sleep_st != PM_ACTIVE))
+            {
+				//QPRINTF("CPU_CLK_OFF %d %d\r\n", ble_sleep_st, usr_sleep_st);
+                enter_sleep(SLEEP_CPU_CLK_OFF,
+                            WAKEUP_BY_ALL_IRQ_SOURCE,
+                            NULL);
+				//QPRINTF("OUT CPU_CLK_OFF\r\n");
+            }
+
+            // Check if the processor can be power down
+            else if((ble_sleep_st == PM_SLEEP) && (usr_sleep_st == PM_SLEEP))
+            {
+				//rtc_time_get();
+				//DLOG("NORMAL %02d:%02d:%02d\r\n", rtc_env.time.hour, rtc_env.time.minute, rtc_env.time.second);
+  				DLOG("NORMAL %d %d\r\n", ble_sleep_st, usr_sleep_st);
+				enter_sleep(SLEEP_NORMAL,
+                            (WAKEUP_BY_OSC_EN | WAKEUP_BY_GPIO),
+                            sleep_cb);
+				DLOG("OUT NORMAL\r\n");
+            }
+
+            // Check if the system can be deep sleep
+            else if((ble_sleep_st == PM_SLEEP) && (usr_sleep_st == PM_DEEP_SLEEP))
+            {
+				DLOG("DEEP %d %d\r\n",ble_sleep_st,usr_sleep_st);
+                enter_sleep(SLEEP_DEEP,
+                            WAKEUP_BY_GPIO,
+                            sleep_cb);
+				DLOG("OUT DEEP\r\n");
+            }
+        }
+
+        // Checks for sleep have to be done with interrupt disabled
+        GLOBAL_INT_RESTORE_WITHOUT_TUNER();
+    }
+}
+
+/// @} MAIN
+
+

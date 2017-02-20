@@ -1,0 +1,24 @@
+#ifndef _DOKI_DEBUG_H_
+#define _DOKI_DEBUG_H_
+
+#include "app_printf.h"
+
+#if 1
+#define DERR QPRINTF
+#else
+#define DERR(fmt, ...)
+#endif
+
+#if 1
+#define DINFO QPRINTF
+#else
+#define DLOG(fmt, ...)
+#endif
+
+#if 1
+#define DLOG QPRINTF
+#else
+#define DLOG(fmt, ...)
+#endif
+
+#endif

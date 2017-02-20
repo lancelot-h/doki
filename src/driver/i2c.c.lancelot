@@ -1,0 +1,358 @@
+ /**
+ ****************************************************************************************
+ *
+ * @file i2c.c
+ *
+ * @brief I2C driver for QN9020.
+ *
+ * Copyright (C) Quintic 2012-2014
+ *
+ * $Rev: 1.0 $
+ *
+ ****************************************************************************************
+ */
+
+/**
+ ****************************************************************************************
+ * @addtogroup  I2C
+ * @{
+ ****************************************************************************************
+ */
+
+/*
+ * INCLUDE FILES
+ ****************************************************************************************
+ */
+#include "i2c.h"
+#include "App_printf.h"
+
+#if CONFIG_ENABLE_DRIVER_I2C==TRUE && CONFIG_ENABLE_ROM_DRIVER_I2C==FALSE
+
+/**
+ ****************************************************************************************
+ * @brief Initialize the I2C controller
+ * @param[in]    speed      SCL 1K: I2C_SCL_RATIO(1000)
+ * @param[in]    buffer     i2c buffer  (point to a gobal memory)
+ * @param[in]    size       i2c buffer len, = address size + data size
+ * @description
+ *  This function is used to initialize I2C in master mode. SCL speed is up to 400KHz. The function is also
+ *  used to enable I2c interrupt, and enable NVIC I2C IRQ.
+ *****************************************************************************************
+ */
+uint8_t i2c_addr;
+void i2c_init(uint8_t addr, uint32_t speed)
+{
+    uint32_t reg;
+
+    //Configure I2C environment
+	i2c_addr = addr;
+
+    i2c_reset();
+
+    reg = speed                             // I2C scl speed
+        | I2C_MASK_MASTR_EN;                // master
+    i2c_i2c_SetCR(QN_I2C, reg);
+}
+
+/**
+ ****************************************************************************************
+ * @brief Check I2C bus is busy or free
+ * @return Busy or free
+ *****************************************************************************************
+ */
+enum I2C_BUS_STATE i2c_bus_check( void )
+{
+	uint32_t timeout = 0;
+
+	do
+	{
+		timeout++;
+		if(timeout > I2C_MAX_TIMEOUT)
+		{
+			return I2C_BUS_BUSY;
+		}
+	}
+	while(i2c_i2c_GetSR(QN_I2C) & I2C_MASK_BUSY);
+
+	return I2C_BUS_FREE;
+}
+
+
+/**
+ ****************************************************************************************
+ * @brief Start a data reception.
+ * @param[in]      saddr          slave device address (7bits, without R/W bit)
+ * @description
+ * This function is used to complete an I2C read transaction from start to stop. All the intermittent steps
+ * are handled in the interrupt handler while the interrupt is enabled.
+ * Before this function is called, the read length, write length, I2C master buffer,
+ * and I2C state need to be filled. Please refer to I2C_BYTE_READ().
+ * As soon as the end of the data transfer is detected, the callback function is called.
+ *****************************************************************************************
+ */
+uint8_t i2c_read(uint8_t reg, uint8_t* pBuf)
+{
+	uint32_t timeout;
+
+	if(i2c_bus_check() == I2C_BUS_BUSY)
+	{
+		goto err;
+	}
+
+	//Start write slave address with write bit
+	i2c_i2c_SetTXD(QN_I2C, ((i2c_addr << 1) & 0xFE) | I2C_MASK_WR_EN | I2C_MASK_START);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_TX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_TX_INT);
+
+	//Write reg addr
+	i2c_i2c_SetTXD(QN_I2C, reg | I2C_MASK_WR_EN);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_TX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_TX_INT);
+
+	//Restart and write slave address with read bit
+	i2c_i2c_SetTXD(QN_I2C, ((i2c_addr << 1) | 0x01) | I2C_MASK_WR_EN | I2C_MASK_START);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_TX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_TX_INT);
+
+	//Start read
+	i2c_i2c_SetTXD(QN_I2C, I2C_MASK_RD_EN | I2C_MASK_NACK_SEND);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_RX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_RX_INT);				//Read data
+	*pBuf = i2c_i2c_GetRXD(QN_I2C);
+
+	//Stop
+	i2c_i2c_SetTXD(QN_I2C, I2C_MASK_STOP);
+	timeout = 0;
+	while((i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_RX_INT))		//Wait for stop
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	return 1;
+
+err:
+	//Stop
+	i2c_i2c_SetTXD(QN_I2C, I2C_MASK_STOP);
+	timeout = 0;
+	while((i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_RX_INT)) 	//Wait for stop
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			break;
+		}
+	}
+	return 0;
+}
+
+
+uint8_t i2c_read_multiple(uint8_t reg, uint8_t *pBuf, uint8_t num)
+{
+	uint8_t count = 0;
+	static uint32_t timeout;
+
+	if(i2c_bus_check() == I2C_BUS_BUSY)
+	{
+		goto err;
+	}
+
+	//Start write slave address with write bit
+	i2c_i2c_SetTXD(QN_I2C, ((i2c_addr << 1) & 0xFE) | I2C_MASK_WR_EN | I2C_MASK_START);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_TX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_TX_INT);
+
+	//Write reg addr
+	i2c_i2c_SetTXD(QN_I2C, reg | I2C_MASK_WR_EN);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_TX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_TX_INT);
+
+	//Restart and write slave address with read bit
+	i2c_i2c_SetTXD(QN_I2C, ((i2c_addr << 1) | 0x01) | I2C_MASK_WR_EN | I2C_MASK_START);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_TX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_TX_INT);
+
+
+	while(count < num-1)
+	{
+		//Start read
+		i2c_i2c_SetTXD(QN_I2C, I2C_MASK_RD_EN | I2C_MASK_ACK_SEND);
+		timeout = 0;
+		while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_RX_INT))	//Wait for ACK
+		{
+			if(timeout++ > I2C_MAX_TIMEOUT)
+			{
+				goto err;
+			}
+		}
+		i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_RX_INT);				//Read data
+		*pBuf++ = i2c_i2c_GetRXD(QN_I2C);
+		count++;
+	}
+
+	//Read last byte
+	i2c_i2c_SetTXD(QN_I2C, I2C_MASK_RD_EN | I2C_MASK_NACK_SEND);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_RX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_RX_INT);				//Read data
+	*pBuf = i2c_i2c_GetRXD(QN_I2C);
+	count++;
+	i2c_i2c_SetTXD(QN_I2C, I2C_MASK_STOP);
+	timeout = 0;
+	while((i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_RX_INT))		//Wait for stop
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	return count;
+err:
+	//Stop
+	i2c_i2c_SetTXD(QN_I2C, I2C_MASK_STOP);
+	timeout = 0;
+	while((i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_RX_INT))		//Wait for stop
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			break;
+		}
+	}
+	return count;
+}
+
+
+uint8_t i2c_write(uint8_t reg, uint8_t data)
+{
+	uint32_t timeout;
+
+	if(i2c_bus_check() == I2C_BUS_BUSY)
+	{
+		goto err;
+	}
+
+	//Start write slave address with write bit
+	i2c_i2c_SetTXD(QN_I2C, ((i2c_addr << 1) & 0xFE) | I2C_MASK_WR_EN | I2C_MASK_START);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_TX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_TX_INT);
+	if (i2c_i2c_GetSR(QN_I2C) & I2C_MASK_ACK_RECEIVED) { // NO ACK
+            goto err;
+        }
+
+	//Write reg addr
+	i2c_i2c_SetTXD(QN_I2C, reg | I2C_MASK_WR_EN);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_TX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_TX_INT);
+	if (i2c_i2c_GetSR(QN_I2C) & I2C_MASK_ACK_RECEIVED) { // NO ACK
+            goto err;
+        }
+
+	//Write reg data
+	i2c_i2c_SetTXD(QN_I2C, data | I2C_MASK_WR_EN);
+	timeout = 0;
+	while(!(i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_TX_INT))	//Wait for ACK
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	i2c_i2c_ClrIntStatus(QN_I2C, I2C_MASK_TX_INT);
+
+	//Stop
+	i2c_i2c_SetTXD(QN_I2C, I2C_MASK_STOP);
+	timeout = 0;
+	while((i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_RX_INT))		//Wait for stop
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			goto err;
+		}
+	}
+	return 1;
+
+err:
+	//QPRINTF("i2c_write failed \r\n");
+	//Stop
+	i2c_i2c_SetTXD(QN_I2C, I2C_MASK_STOP);
+	timeout = 0;
+	while((i2c_i2c_GetIntStatus(QN_I2C) & I2C_MASK_RX_INT))		//Wait for stop
+	{
+		if(timeout++ > I2C_MAX_TIMEOUT)
+		{
+			break;
+		}
+	}
+	return 0;
+}
+
+#endif

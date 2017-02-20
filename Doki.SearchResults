@@ -1,0 +1,10 @@
+---- DOKI_CONFIG_CMD_GET_DATA Matches (4 in 2 files) ----
+Doki.h (src\profiles\doki):    DOKI_CONFIG_CMD_GET_DATA = 0x07,
+Doki_task.c (src\profiles\doki):		data_buf[0] = DOKI_CONFIG_CMD_GET_DATA;
+Doki_task.c (src\profiles\doki):					case DOKI_CONFIG_CMD_GET_DATA:
+Doki_task.c (src\profiles\doki):						data_buf[0] = DOKI_CONFIG_CMD_GET_DATA;
+---- doki_data_transfer_handler Matches (4 in 1 files) ----
+Doki_task.c (src\profiles\doki):void doki_data_transfer_handler(void)
+Doki_task.c (src\profiles\doki):				doki_data_transfer_handler();
+Doki_task.c (src\profiles\doki):				doki_data_transfer_handler();
+Doki_task.c (src\profiles\doki):		doki_data_transfer_handler();
